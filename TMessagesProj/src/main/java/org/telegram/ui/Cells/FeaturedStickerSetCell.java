@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -16,6 +16,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Paint;
+import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
@@ -29,9 +30,11 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.DataQuery;
+import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
-import org.telegram.messenger.query.StickersQuery;
+import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Components.BackupImageView;
@@ -51,6 +54,8 @@ public class FeaturedStickerSetCell extends FrameLayout {
     private boolean wasLayout;
 
     private boolean isInstalled;
+
+    private int currentAccount = UserConfig.selectedAccount;
 
     private boolean drawProgress;
     private float progressAlpha;
@@ -76,7 +81,7 @@ public class FeaturedStickerSetCell extends FrameLayout {
         textView.setSingleLine(true);
         textView.setEllipsize(TextUtils.TruncateAt.END);
         textView.setGravity(LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT);
-        addView(textView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT, LocaleController.isRTL ? 100 : 71, 10, LocaleController.isRTL ? 71 : 100, 0));
+        addView(textView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT, LocaleController.isRTL ? 22 : 71, 10, LocaleController.isRTL ? 71 : 22, 0));
 
         valueTextView = new TextView(context);
         valueTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
@@ -147,6 +152,8 @@ public class FeaturedStickerSetCell extends FrameLayout {
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(64) + (needDivider ? 1 : 0), MeasureSpec.EXACTLY));
+
+        measureChildWithMargins(textView, widthMeasureSpec, addButton.getMeasuredWidth(), heightMeasureSpec, 0);
     }
 
     @Override
@@ -199,7 +206,7 @@ public class FeaturedStickerSetCell extends FrameLayout {
 
                 @Override
                 public int getOpacity() {
-                    return 0;
+                    return PixelFormat.TRANSPARENT;
                 }
 
                 @Override
@@ -218,15 +225,19 @@ public class FeaturedStickerSetCell extends FrameLayout {
         }
 
         valueTextView.setText(LocaleController.formatPluralString("Stickers", set.set.count));
-        if (set.cover != null && set.cover.thumb != null && set.cover.thumb.location != null) {
-            imageView.setImage(set.cover.thumb.location, null, "webp", null);
-        } else if (!set.covers.isEmpty()) {
-            imageView.setImage(set.covers.get(0).thumb.location, null, "webp", null);
+        TLRPC.PhotoSize thumb = set.cover != null ? FileLoader.getClosestPhotoSizeWithSize(set.cover.thumbs, 90) : null;
+        if (thumb != null && thumb.location != null) {
+            imageView.setImage(thumb, null, "webp", null, set);
+        } else {
+            thumb = !set.covers.isEmpty() ? FileLoader.getClosestPhotoSizeWithSize(set.covers.get(0).thumbs, 90) : null;
+            if (thumb != null) {
+                imageView.setImage(thumb, null, "webp", null, set);
+            }
         }
 
         if (sameSet) {
             boolean wasInstalled = isInstalled;
-            if (isInstalled = StickersQuery.isStickerPackInstalled(set.set.id)) {
+            if (isInstalled = DataQuery.getInstance(currentAccount).isStickerPackInstalled(set.set.id)) {
                 if (!wasInstalled) {
                     checkImage.setVisibility(VISIBLE);
                     addButton.setClickable(false);
@@ -286,7 +297,7 @@ public class FeaturedStickerSetCell extends FrameLayout {
                 }
             }
         } else {
-            if (isInstalled = StickersQuery.isStickerPackInstalled(set.set.id)) {
+            if (isInstalled = DataQuery.getInstance(currentAccount).isStickerPackInstalled(set.set.id)) {
                 addButton.setVisibility(INVISIBLE);
                 addButton.setClickable(false);
                 checkImage.setVisibility(VISIBLE);

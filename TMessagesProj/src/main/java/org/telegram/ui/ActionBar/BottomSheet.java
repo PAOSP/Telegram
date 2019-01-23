@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.ActionBar;
@@ -12,7 +12,6 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
-import android.annotation.SuppressLint;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -48,12 +47,14 @@ import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.R;
+import org.telegram.messenger.UserConfig;
 import org.telegram.ui.Components.LayoutHelper;
 
 import java.util.ArrayList;
 
 public class BottomSheet extends Dialog {
 
+    protected int currentAccount = UserConfig.selectedAccount;
     protected ViewGroup containerView;
     protected ContainerView container;
     private WindowInsets lastInsets;
@@ -75,6 +76,7 @@ public class BottomSheet extends Dialog {
     private View customView;
     private CharSequence title;
     protected boolean fullWidth;
+    protected boolean fullscreen;
     protected ColorDrawable backDrawable = new ColorDrawable(0xff000000);
 
     private boolean allowCustomAnimation = true;
@@ -82,6 +84,8 @@ public class BottomSheet extends Dialog {
 
     private int touchSlop;
     private boolean useFastDismiss;
+
+    private TextView titleView;
 
     private boolean focusable;
 
@@ -99,9 +103,13 @@ public class BottomSheet extends Dialog {
 
     private ArrayList<BottomSheetCell> itemViews = new ArrayList<>();
 
+    private Runnable dismissRunnable = this::dismiss;
+
     private BottomSheetDelegateInterface delegate;
 
     protected AnimatorSet currentSheetAnimation;
+
+    protected View nestedScrollChild;
 
     protected class ContainerView extends FrameLayout implements NestedScrollingParent {
 
@@ -121,7 +129,8 @@ public class BottomSheet extends Dialog {
 
         @Override
         public boolean onStartNestedScroll(View child, View target, int nestedScrollAxes) {
-            return !dismissed && allowNestedScroll && nestedScrollAxes == ViewCompat.SCROLL_AXIS_VERTICAL && !canDismissWithSwipe();
+            return !(nestedScrollChild != null && child != nestedScrollChild) &&
+                    !dismissed && allowNestedScroll && nestedScrollAxes == ViewCompat.SCROLL_AXIS_VERTICAL && !canDismissWithSwipe();
         }
 
         @Override
@@ -171,7 +180,6 @@ public class BottomSheet extends Dialog {
                 consumed[1] = dy;
                 if (currentTranslation < 0) {
                     currentTranslation = 0;
-                    consumed[1] += currentTranslation;
                 }
                 containerView.setTranslationY(currentTranslation);
             }
@@ -225,15 +233,14 @@ public class BottomSheet extends Dialog {
             }
         }
 
-        @Override
-        public boolean onTouchEvent(MotionEvent ev) {
+        boolean processTouchEvent(MotionEvent ev, boolean intercept) {
             if (dismissed) {
                 return false;
             }
             if (onContainerTouchEvent(ev)) {
                 return true;
             }
-            if (canDismissWithTouchOutside() && ev != null && (ev.getAction() == MotionEvent.ACTION_DOWN || ev.getAction() == MotionEvent.ACTION_MOVE) && (!startedTracking && !maybeStartTracking || ev.getPointerCount() == 1)) {
+            if (canDismissWithTouchOutside() && ev != null && (ev.getAction() == MotionEvent.ACTION_DOWN || ev.getAction() == MotionEvent.ACTION_MOVE) && (!startedTracking && !maybeStartTracking && ev.getPointerCount() == 1)) {
                 startedTrackingX = (int) ev.getX();
                 startedTrackingY = (int) ev.getY();
                 if (startedTrackingY < containerView.getTop() || startedTrackingX < containerView.getLeft() || startedTrackingX > containerView.getRight()) {
@@ -286,7 +293,12 @@ public class BottomSheet extends Dialog {
                 }
                 startedTrackingPointerId = -1;
             }
-            return startedTracking || !canDismissWithSwipe();
+            return !intercept && maybeStartTracking || startedTracking || !canDismissWithSwipe();
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent ev) {
+            return processTouchEvent(ev, false);
         }
 
         @Override
@@ -408,7 +420,7 @@ public class BottomSheet extends Dialog {
         @Override
         public boolean onInterceptTouchEvent(MotionEvent event) {
             if (canDismissWithSwipe()) {
-                return onTouchEvent(event);
+                return processTouchEvent(event, true);
             }
             return super.onInterceptTouchEvent(event);
         }
@@ -559,14 +571,10 @@ public class BottomSheet extends Dialog {
         focusable = needFocus;
         if (Build.VERSION.SDK_INT >= 21) {
             container.setFitsSystemWindows(true);
-            container.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
-                @SuppressLint("NewApi")
-                @Override
-                public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
-                    lastInsets = insets;
-                    v.requestLayout();
-                    return insets.consumeSystemWindowInsets();
-                }
+            container.setOnApplyWindowInsetsListener((v, insets) -> {
+                lastInsets = insets;
+                v.requestLayout();
+                return insets.consumeSystemWindowInsets();
             });
             container.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
         }
@@ -606,7 +614,7 @@ public class BottomSheet extends Dialog {
 
         int topOffset = 0;
         if (title != null) {
-            TextView titleView = new TextView(getContext());
+            titleView = new TextView(getContext());
             titleView.setLines(1);
             titleView.setSingleLine(true);
             titleView.setText(title);
@@ -616,12 +624,7 @@ public class BottomSheet extends Dialog {
             titleView.setPadding(AndroidUtilities.dp(16), 0, AndroidUtilities.dp(16), AndroidUtilities.dp(8));
             titleView.setGravity(Gravity.CENTER_VERTICAL);
             containerView.addView(titleView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48));
-            titleView.setOnTouchListener(new View.OnTouchListener() {
-                @Override
-                public boolean onTouch(View v, MotionEvent event) {
-                    return true;
-                }
-            });
+            titleView.setOnTouchListener((v, event) -> true);
             topOffset += 48;
         }
         if (customView != null) {
@@ -643,12 +646,7 @@ public class BottomSheet extends Dialog {
                     containerView.addView(cell, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.LEFT | Gravity.TOP, 0, topOffset, 0, 0));
                     topOffset += 48;
                     cell.setTag(a);
-                    cell.setOnClickListener(new View.OnClickListener() {
-                        @Override
-                        public void onClick(View v) {
-                            dismissWithButtonClick((Integer) v.getTag());
-                        }
-                    });
+                    cell.setOnClickListener(v -> dismissWithButtonClick((Integer) v.getTag()));
                     itemViews.add(cell);
                 }
             }
@@ -661,6 +659,14 @@ public class BottomSheet extends Dialog {
         params.flags &= ~WindowManager.LayoutParams.FLAG_DIM_BEHIND;
         if (!focusable) {
             params.flags |= WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+        }
+        if (fullscreen) {
+            if (Build.VERSION.SDK_INT >= 21) {
+                params.flags |= WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
+                        WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR |
+                        WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS;
+            }
+            params.flags |= WindowManager.LayoutParams.FLAG_FULLSCREEN;
         }
         params.height = ViewGroup.LayoutParams.MATCH_PARENT;
         window.setAttributes(params);
@@ -751,6 +757,10 @@ public class BottomSheet extends Dialog {
         return true;
     }
 
+    public TextView getTitleView() {
+        return titleView;
+    }
+
     protected void onContainerTranslationYChanged(float translationY) {
 
     }
@@ -830,6 +840,22 @@ public class BottomSheet extends Dialog {
         cell.textView.setText(text);
     }
 
+    public void setItemColor(int item, int color, int icon) {
+        if (item < 0 || item >= itemViews.size()) {
+            return;
+        }
+        BottomSheetCell cell = itemViews.get(item);
+        cell.textView.setTextColor(color);
+        cell.imageView.setColorFilter(new PorterDuffColorFilter(icon, PorterDuff.Mode.MULTIPLY));
+    }
+
+    public void setTitleColor(int color) {
+        if (titleView == null) {
+            return;
+        }
+        titleView.setTextColor(color);
+    }
+
     public boolean isDismissed() {
         return dismissed;
     }
@@ -855,14 +881,11 @@ public class BottomSheet extends Dialog {
                     if (onClickListener != null) {
                         onClickListener.onClick(BottomSheet.this, item);
                     }
-                    AndroidUtilities.runOnUIThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                BottomSheet.super.dismiss();
-                            } catch (Exception e) {
-                                FileLog.e(e);
-                            }
+                    AndroidUtilities.runOnUIThread(() -> {
+                        try {
+                            BottomSheet.super.dismiss();
+                        } catch (Exception e) {
+                            FileLog.e(e);
                         }
                     });
                 }
@@ -908,14 +931,11 @@ public class BottomSheet extends Dialog {
                 public void onAnimationEnd(Animator animation) {
                     if (currentSheetAnimation != null && currentSheetAnimation.equals(animation)) {
                         currentSheetAnimation = null;
-                        AndroidUtilities.runOnUIThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                try {
-                                    dismissInternal();
-                                } catch (Exception e) {
-                                    FileLog.e(e);
-                                }
+                        AndroidUtilities.runOnUIThread(() -> {
+                            try {
+                                dismissInternal();
+                            } catch (Exception e) {
+                                FileLog.e(e);
                             }
                         });
                     }
@@ -1018,8 +1038,17 @@ public class BottomSheet extends Dialog {
             return this;
         }
 
+        public Runnable getDismissRunnable() {
+            return bottomSheet.dismissRunnable;
+        }
+
         public BottomSheet setUseFullWidth(boolean value) {
             bottomSheet.fullWidth = value;
+            return bottomSheet;
+        }
+
+        public BottomSheet setUseFullscreen(boolean value) {
+            bottomSheet.fullscreen = value;
             return bottomSheet;
         }
     }

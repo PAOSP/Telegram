@@ -3,7 +3,7 @@
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
@@ -308,7 +308,7 @@ public class PhotoCropActivity extends BaseFragment {
             try {
                 return Bitmaps.createBitmap(imageToCrop, x, y, sizeX, sizeY);
             } catch (Throwable e) {
-                FileLog.e("tmessags", e);
+                FileLog.e(e);
                 System.gc();
                 try {
                     return Bitmaps.createBitmap(imageToCrop, x, y, sizeX, sizeY);

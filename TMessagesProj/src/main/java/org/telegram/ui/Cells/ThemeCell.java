@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -40,17 +40,19 @@ public class ThemeCell extends FrameLayout {
     private boolean needDivider;
     private Paint paint;
     private Theme.ThemeInfo currentThemeInfo;
+    private boolean isNightTheme;
     private static byte[] bytes = new byte[1024];
 
-    public ThemeCell(Context context) {
+    public ThemeCell(Context context, boolean nightTheme) {
         super(context);
 
         setWillNotDraw(false);
 
+        isNightTheme = nightTheme;
+
         paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
         textView = new TextView(context);
-        textView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
         textView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
         textView.setLines(1);
         textView.setMaxLines(1);
@@ -58,25 +60,37 @@ public class ThemeCell extends FrameLayout {
         textView.setPadding(0, 0, 0, AndroidUtilities.dp(1));
         textView.setEllipsize(TextUtils.TruncateAt.END);
         textView.setGravity((LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT) | Gravity.CENTER_VERTICAL);
-        addView(textView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, (LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT) | Gravity.TOP, LocaleController.isRTL ? 53 + 48 : 60, 0, LocaleController.isRTL ? 60 : 53 + 48, 0));
+        addView(textView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, (LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT) | Gravity.TOP, LocaleController.isRTL ? 53 + 48 + 4 : 60, 0, LocaleController.isRTL ? 60 : 53 + 48 + 4, 0));
 
         checkImage = new ImageView(context);
         checkImage.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_featuredStickers_addedIcon), PorterDuff.Mode.MULTIPLY));
         checkImage.setImageResource(R.drawable.sticker_added);
-        addView(checkImage, LayoutHelper.createFrame(19, 14, (LocaleController.isRTL ? Gravity.LEFT : Gravity.RIGHT) | Gravity.CENTER_VERTICAL, 17 + 38, 0, 17 + 38, 0));
 
-        optionsButton = new ImageView(context);
-        optionsButton.setFocusable(false);
-        optionsButton.setBackgroundDrawable(Theme.createSelectorDrawable(Theme.getColor(Theme.key_stickers_menuSelector)));
-        optionsButton.setImageResource(R.drawable.ic_ab_other);
-        optionsButton.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_stickers_menu), PorterDuff.Mode.MULTIPLY));
-        optionsButton.setScaleType(ImageView.ScaleType.CENTER);
-        addView(optionsButton, LayoutHelper.createFrame(48, 48, (LocaleController.isRTL ? Gravity.LEFT : Gravity.RIGHT) | Gravity.TOP));
+        if (!isNightTheme) {
+            addView(checkImage, LayoutHelper.createFrame(19, 14, (LocaleController.isRTL ? Gravity.LEFT : Gravity.RIGHT) | Gravity.CENTER_VERTICAL, 21 + 38, 0, 21 + 38, 0));
+
+            optionsButton = new ImageView(context);
+            optionsButton.setFocusable(false);
+            optionsButton.setBackgroundDrawable(Theme.createSelectorDrawable(Theme.getColor(Theme.key_stickers_menuSelector)));
+            optionsButton.setImageResource(R.drawable.ic_ab_other);
+            optionsButton.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_stickers_menu), PorterDuff.Mode.MULTIPLY));
+            optionsButton.setScaleType(ImageView.ScaleType.CENTER);
+            addView(optionsButton, LayoutHelper.createFrame(48, 48, (LocaleController.isRTL ? Gravity.LEFT : Gravity.RIGHT) | Gravity.TOP));
+        } else {
+            addView(checkImage, LayoutHelper.createFrame(19, 14, (LocaleController.isRTL ? Gravity.LEFT : Gravity.RIGHT) | Gravity.CENTER_VERTICAL, 21, 0, 21, 0));
+        }
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        checkImage.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_featuredStickers_addedIcon), PorterDuff.Mode.MULTIPLY));
+        textView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
     }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        super.onMeasure(MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(48) + (needDivider ? 1 : 0), MeasureSpec.EXACTLY));
+        super.onMeasure(MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(50) + (needDivider ? 1 : 0), MeasureSpec.EXACTLY));
     }
 
     public void setOnOptionsClick(OnClickListener listener) {
@@ -103,7 +117,7 @@ public class ThemeCell extends FrameLayout {
         }
         textView.setText(text);
         needDivider = divider;
-        checkImage.setVisibility(themeInfo == Theme.getCurrentTheme() ? VISIBLE : INVISIBLE);
+        updateCurrentThemeCheck();
 
         boolean finished = false;
         if (themeInfo.pathToFile != null || themeInfo.assetName != null) {
@@ -180,12 +194,25 @@ public class ThemeCell extends FrameLayout {
         }
     }
 
+    public void updateCurrentThemeCheck() {
+        Theme.ThemeInfo currentTheme;
+        if (isNightTheme) {
+            currentTheme = Theme.getCurrentNightTheme();
+        } else {
+            currentTheme = Theme.getCurrentTheme();
+        }
+        int newVisibility = currentThemeInfo == currentTheme ? VISIBLE : INVISIBLE;
+        if (checkImage.getVisibility() != newVisibility) {
+            checkImage.setVisibility(newVisibility);
+        }
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         if (needDivider) {
-            canvas.drawLine(getPaddingLeft(), getHeight() - 1, getWidth() - getPaddingRight(), getHeight() - 1, Theme.dividerPaint);
+            canvas.drawLine(LocaleController.isRTL ? 0 : AndroidUtilities.dp(20), getMeasuredHeight() - 1, getMeasuredWidth() - (LocaleController.isRTL ? AndroidUtilities.dp(20) : 0), getMeasuredHeight() - 1, Theme.dividerPaint);
         }
-        int x = AndroidUtilities.dp(16 + 11);
+        int x = AndroidUtilities.dp(16 + 15);
         if (LocaleController.isRTL) {
             x = getWidth() - x;
         }

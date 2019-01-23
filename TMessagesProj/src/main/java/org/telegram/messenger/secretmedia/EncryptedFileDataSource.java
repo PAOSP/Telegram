@@ -1,32 +1,31 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.messenger.secretmedia;
 
 import android.net.Uri;
+import android.support.annotation.Nullable;
+
+import com.google.android.exoplayer2.C;
+import com.google.android.exoplayer2.upstream.BaseDataSource;
+import com.google.android.exoplayer2.upstream.DataSpec;
+import com.google.android.exoplayer2.upstream.TransferListener;
 
 import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.Utilities;
-import org.telegram.messenger.exoplayer2.C;
-import org.telegram.messenger.exoplayer2.upstream.DataSource;
-import org.telegram.messenger.exoplayer2.upstream.DataSpec;
-import org.telegram.messenger.exoplayer2.upstream.TransferListener;
 
 import java.io.EOFException;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
-public final class EncryptedFileDataSource implements DataSource {
+public final class EncryptedFileDataSource extends BaseDataSource {
 
-    /**
-     * Thrown when IOException is encountered during local file read operation.
-     */
     public static class EncryptedFileDataSourceException extends IOException {
 
         public EncryptedFileDataSourceException(IOException cause) {
@@ -34,8 +33,6 @@ public final class EncryptedFileDataSource implements DataSource {
         }
 
     }
-
-    private final TransferListener<? super EncryptedFileDataSource> listener;
 
     private RandomAccessFile file;
     private Uri uri;
@@ -46,11 +43,15 @@ public final class EncryptedFileDataSource implements DataSource {
     private int fileOffset;
 
     public EncryptedFileDataSource() {
-        this(null);
+        super(/* isNetwork= */ false);
     }
 
-    public EncryptedFileDataSource(TransferListener<? super EncryptedFileDataSource> listener) {
-        this.listener = listener;
+    @Deprecated
+    public EncryptedFileDataSource(@Nullable TransferListener listener) {
+        this();
+        if (listener != null) {
+            addTransferListener(listener);
+        }
     }
 
     @Override
@@ -77,9 +78,7 @@ public final class EncryptedFileDataSource implements DataSource {
         }
 
         opened = true;
-        if (listener != null) {
-            listener.onTransferStart(this, dataSpec);
-        }
+        transferStarted(dataSpec);
 
         return bytesRemaining;
     }
@@ -102,9 +101,7 @@ public final class EncryptedFileDataSource implements DataSource {
 
             if (bytesRead > 0) {
                 bytesRemaining -= bytesRead;
-                if (listener != null) {
-                    listener.onBytesTransferred(this, bytesRead);
-                }
+                bytesTransferred(bytesRead);
             }
 
             return bytesRead;
@@ -130,9 +127,7 @@ public final class EncryptedFileDataSource implements DataSource {
             file = null;
             if (opened) {
                 opened = false;
-                if (listener != null) {
-                    listener.onTransferEnd(this);
-                }
+                transferEnded();
             }
         }
     }

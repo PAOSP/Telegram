@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -36,6 +36,7 @@ import org.telegram.ui.Components.AvatarDrawable;
 import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.ActionBar.Theme;
+import org.telegram.ui.Components.SnowflakesEffect;
 
 public class DrawerProfileCell extends FrameLayout {
 
@@ -43,46 +44,16 @@ public class DrawerProfileCell extends FrameLayout {
     private TextView nameTextView;
     private TextView phoneTextView;
     private ImageView shadowView;
-    //private CloudView cloudView;
+    private ImageView arrowView;
     private Rect srcRect = new Rect();
     private Rect destRect = new Rect();
     private Paint paint = new Paint();
     private Integer currentColor;
-    //private Drawable cloudDrawable;
-    //private int lastCloudColor;
-
-    /*private class CloudView extends View {
-
-        private Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-
-        public CloudView(Context context) {
-            super(context);
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            if (Theme.isCustomTheme() && Theme.getCachedWallpaper() != null) {
-                paint.setColor(Theme.getServiceMessageColor());
-            } else {
-                paint.setColor(Theme.getColor(Theme.key_chats_menuCloudBackgroundCats));
-            }
-            int newColor = Theme.getColor(Theme.key_chats_menuCloud);
-            if (lastCloudColor != newColor) {
-                cloudDrawable.setColorFilter(new PorterDuffColorFilter(lastCloudColor = Theme.getColor(Theme.key_chats_menuCloud), PorterDuff.Mode.MULTIPLY));
-            }
-            canvas.drawCircle(getMeasuredWidth() / 2.0f, getMeasuredHeight() / 2.0f, AndroidUtilities.dp(34) / 2.0f, paint);
-            int l = (getMeasuredWidth() - AndroidUtilities.dp(24)) / 2;
-            int t = (getMeasuredHeight() - AndroidUtilities.dp(24)) / 2 + AndroidUtilities.dp(0.5f);
-            cloudDrawable.setBounds(l, t, l + AndroidUtilities.dp(24), t + AndroidUtilities.dp(24));
-            cloudDrawable.draw(canvas);
-        }
-    }*/
+    private SnowflakesEffect snowflakesEffect;
+    private boolean accountsShowed;
 
     public DrawerProfileCell(Context context) {
         super(context);
-
-        //cloudDrawable = context.getResources().getDrawable(R.drawable.bookmark_filled);
-        //cloudDrawable.setColorFilter(new PorterDuffColorFilter(lastCloudColor = Theme.getColor(Theme.key_chats_menuCloud), PorterDuff.Mode.MULTIPLY));
 
         shadowView = new ImageView(context);
         shadowView.setVisibility(INVISIBLE);
@@ -112,8 +83,13 @@ public class DrawerProfileCell extends FrameLayout {
         phoneTextView.setGravity(Gravity.LEFT);
         addView(phoneTextView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.BOTTOM, 16, 0, 76, 9));
 
-        //cloudView = new CloudView(context);
-        //addView(cloudView, LayoutHelper.createFrame(61, 61, Gravity.RIGHT | Gravity.BOTTOM));
+        arrowView = new ImageView(context);
+        arrowView.setScaleType(ImageView.ScaleType.CENTER);
+        addView(arrowView, LayoutHelper.createFrame(59, 59, Gravity.RIGHT | Gravity.BOTTOM));
+
+        if (Theme.getEventType() == 0) {
+            snowflakesEffect = new SnowflakesEffect();
+        }
     }
 
     @Override
@@ -172,9 +148,33 @@ public class DrawerProfileCell extends FrameLayout {
             phoneTextView.setTextColor(Theme.getColor(Theme.key_chats_menuPhoneCats));
             super.onDraw(canvas);
         }
+
+        if (snowflakesEffect != null) {
+            snowflakesEffect.onDraw(this, canvas);
+        }
     }
 
-    public void setUser(TLRPC.User user) {
+    public boolean isAccountsShowed() {
+        return accountsShowed;
+    }
+
+    public void setAccountsShowed(boolean value) {
+        if (accountsShowed == value) {
+            return;
+        }
+        accountsShowed = value;
+        arrowView.setImageResource(accountsShowed ? R.drawable.collapse_up : R.drawable.collapse_down);
+    }
+
+    public void setOnArrowClickListener(final OnClickListener onClickListener) {
+        arrowView.setOnClickListener(v -> {
+            accountsShowed = !accountsShowed;
+            arrowView.setImageResource(accountsShowed ? R.drawable.collapse_up : R.drawable.collapse_down);
+            onClickListener.onClick(DrawerProfileCell.this);
+        });
+    }
+
+    public void setUser(TLRPC.User user, boolean accounts) {
         if (user == null) {
             return;
         }
@@ -182,16 +182,12 @@ public class DrawerProfileCell extends FrameLayout {
         if (user.photo != null) {
             photo = user.photo.photo_small;
         }
+        accountsShowed = accounts;
+        arrowView.setImageResource(accountsShowed ? R.drawable.collapse_up : R.drawable.collapse_down);
         nameTextView.setText(UserObject.getUserName(user));
         phoneTextView.setText(PhoneFormat.getInstance().format("+" + user.phone));
         AvatarDrawable avatarDrawable = new AvatarDrawable(user);
         avatarDrawable.setColor(Theme.getColor(Theme.key_avatar_backgroundInProfileBlue));
-        avatarImageView.setImage(photo, "50_50", avatarDrawable);
-    }
-
-    @Override
-    public void invalidate() {
-        super.invalidate();
-        //cloudView.invalidate();
+        avatarImageView.setImage(photo, "50_50", avatarDrawable, user);
     }
 }

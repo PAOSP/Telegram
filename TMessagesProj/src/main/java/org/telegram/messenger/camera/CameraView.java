@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.messenger.camera;
@@ -28,7 +28,7 @@ import android.widget.FrameLayout;
 import org.telegram.messenger.AndroidUtilities;
 
 import java.util.ArrayList;
-import java.util.concurrent.Semaphore;
+import java.util.concurrent.CountDownLatch;
 
 @SuppressLint("NewApi")
 public class CameraView extends FrameLayout implements TextureView.SurfaceTextureListener {
@@ -45,7 +45,6 @@ public class CameraView extends FrameLayout implements TextureView.SurfaceTextur
     private Matrix txform = new Matrix();
     private Matrix matrix = new Matrix();
     private int focusAreaSize;
-    private boolean circleShape = false;
 
     private long lastDrawTime;
     private float focusProgress = 1.0f;
@@ -108,10 +107,10 @@ public class CameraView extends FrameLayout implements TextureView.SurfaceTextur
         }
         initied = false;
         isFrontface = !isFrontface;
-        initCamera(isFrontface);
+        initCamera();
     }
 
-    private void initCamera(boolean front) {
+    private void initCamera() {
         CameraInfo info = null;
         ArrayList<CameraInfo> cameraInfos = CameraController.getInstance().getCameras();
         if (cameraInfos == null) {
@@ -194,7 +193,7 @@ public class CameraView extends FrameLayout implements TextureView.SurfaceTextur
 
     @Override
     public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
-        initCamera(isFrontface);
+        initCamera();
     }
 
     @Override
@@ -336,7 +335,7 @@ public class CameraView extends FrameLayout implements TextureView.SurfaceTextur
     public void destroy(boolean async, final Runnable beforeDestroyRunnable) {
         if (cameraSession != null) {
             cameraSession.destroy();
-            CameraController.getInstance().close(cameraSession, !async ? new Semaphore(0) : null, beforeDestroyRunnable);
+            CameraController.getInstance().close(cameraSession, !async ? new CountDownLatch(1) : null, beforeDestroyRunnable);
         }
     }
 

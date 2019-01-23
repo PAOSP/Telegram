@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.tgnet;
@@ -12,7 +12,7 @@ import java.io.File;
 
 public class FileLoadOperation {
 
-    private int address;
+    private long address;
     private boolean isForceRequest;
     private FileLoadOperationDelegate delegate;
     private boolean started;
@@ -53,7 +53,7 @@ public class FileLoadOperation {
         return started;
     }
 
-    public static native int native_createLoadOpetation(int dc_id, long id, long volume_id, long access_hash, int local_id, byte[] encKey, byte[] encIv, String extension, int version, int size, String dest, String temp, Object delegate);
-    public static native void native_startLoadOperation(int address);
-    public static native void native_cancelLoadOperation(int address);
+    public static native long native_createLoadOpetation(int dc_id, long id, long volume_id, long access_hash, int local_id, byte[] encKey, byte[] encIv, String extension, int version, int size, String dest, String temp, Object delegate);
+    public static native void native_startLoadOperation(long address);
+    public static native void native_cancelLoadOperation(long address);
 }

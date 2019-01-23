@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
@@ -32,6 +32,7 @@ import android.widget.FrameLayout;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
+import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessageObject;
@@ -71,23 +72,22 @@ public class WebviewActivity extends BaseFragment {
     private class TelegramWebviewProxy {
         @JavascriptInterface
         public void postEvent(final String eventName, final String eventData) {
-            AndroidUtilities.runOnUIThread(new Runnable() {
-                @Override
-                public void run() {
-                    if (getParentActivity() == null) {
-                        return;
-                    }
-                    FileLog.e(eventName);
-                    switch (eventName) {
-                        case "share_game":
-                            currentMessageObject.messageOwner.with_my_score = false;
-                            break;
-                        case "share_score":
-                            currentMessageObject.messageOwner.with_my_score = true;
-                            break;
-                    }
-                    showDialog(ShareAlert.createShareAlert(getParentActivity(), currentMessageObject, null, false, linkToCopy, false));
+            AndroidUtilities.runOnUIThread(() -> {
+                if (getParentActivity() == null) {
+                    return;
                 }
+                if (BuildVars.LOGS_ENABLED) {
+                    FileLog.d(eventName);
+                }
+                switch (eventName) {
+                    case "share_game":
+                        currentMessageObject.messageOwner.with_my_score = false;
+                        break;
+                    case "share_score":
+                        currentMessageObject.messageOwner.with_my_score = true;
+                        break;
+                }
+                showDialog(ShareAlert.createShareAlert(getParentActivity(), currentMessageObject, null, false, linkToCopy, false));
             });
         }
     }
@@ -98,7 +98,7 @@ public class WebviewActivity extends BaseFragment {
             if (currentMessageObject == null || getParentActivity() == null || typingRunnable == null) {
                 return;
             }
-            MessagesController.getInstance().sendTyping(currentMessageObject.getDialogId(), 6, 0);
+            MessagesController.getInstance(currentAccount).sendTyping(currentMessageObject.getDialogId(), 6, 0);
             AndroidUtilities.runOnUIThread(typingRunnable, 25000);
         }
     };
@@ -110,7 +110,7 @@ public class WebviewActivity extends BaseFragment {
         currentGame = gameName;
         currentMessageObject = messageObject;
         short_param = startParam;
-        linkToCopy = "https://" + MessagesController.getInstance().linkPrefix + "/" + currentBot + (TextUtils.isEmpty(startParam) ? "" : "?game=" + startParam);
+        linkToCopy = "https://" + MessagesController.getInstance(currentAccount).linkPrefix + "/" + currentBot + (TextUtils.isEmpty(startParam) ? "" : "?game=" + startParam);
     }
 
     @Override
@@ -156,8 +156,11 @@ public class WebviewActivity extends BaseFragment {
         ActionBarMenu menu = actionBar.createMenu();
         progressItem = menu.addItemWithWidth(share, R.drawable.share, AndroidUtilities.dp(54));
         progressView = new ContextProgressView(context, 1);
+        progressView.setAlpha(0.0f);
+        progressView.setScaleX(0.1f);
+        progressView.setScaleY(0.1f);
+        progressView.setVisibility(View.INVISIBLE);
         progressItem.addView(progressView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
-        progressItem.getImageView().setVisibility(View.INVISIBLE);
 
         ActionBarMenuItem menuItem = menu.addItem(0, R.drawable.ic_ab_other);
         menuItem.addSubItem(open_in, LocaleController.getString("OpenInExternalApp", R.string.OpenInExternalApp));
@@ -301,9 +304,10 @@ public class WebviewActivity extends BaseFragment {
             SerializedData serializedData = new SerializedData(messageObject.messageOwner.getObjectSize());
             messageObject.messageOwner.serializeToStream(serializedData);
             editor.putString(hash + "_m", Utilities.bytesToHex(serializedData.toByteArray()));
-            editor.putString(hash + "_link", "https://" + MessagesController.getInstance().linkPrefix + "/" + username + (TextUtils.isEmpty(short_name) ? "" : "?game=" + short_name));
+            editor.putString(hash + "_link", "https://" + MessagesController.getInstance(messageObject.currentAccount).linkPrefix + "/" + username + (TextUtils.isEmpty(short_name) ? "" : "?game=" + short_name));
             editor.commit();
             Browser.openUrl(parentActivity, url, false);
+            serializedData.cleanup();
         } catch (Exception e) {
             FileLog.e(e);
         }

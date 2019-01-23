@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
@@ -27,6 +27,7 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
+import android.support.annotation.Keep;
 import android.util.SparseArray;
 import android.view.GestureDetector;
 import android.view.Gravity;
@@ -39,6 +40,10 @@ import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 
+import com.google.android.exoplayer2.C;
+import com.google.android.exoplayer2.ExoPlayer;
+import com.google.android.exoplayer2.ui.AspectRatioFrameLayout;
+
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ImageReceiver;
 import org.telegram.messenger.LocaleController;
@@ -47,10 +52,8 @@ import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.R;
+import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
-import org.telegram.messenger.exoplayer2.C;
-import org.telegram.messenger.exoplayer2.ExoPlayer;
-import org.telegram.messenger.exoplayer2.ui.AspectRatioFrameLayout;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
@@ -203,7 +206,7 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
                     progress = 1;
                 }
             } else {
-                long msTime = System.currentTimeMillis() + ConnectionsManager.getInstance().getTimeDifference() * 1000;
+                long msTime = System.currentTimeMillis() + ConnectionsManager.getInstance(currentAccount).getTimeDifference() * 1000;
                 progress = Math.max(0, destroyTime - msTime) / (destroyTtl * 1000.0f);
             }
 
@@ -269,6 +272,7 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
             super(color);
         }
 
+        @Keep
         @Override
         public void setAlpha(int alpha) {
             if (parentActivity instanceof LaunchActivity) {
@@ -292,6 +296,7 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
         }
     }
 
+    private int currentAccount;
     private Activity parentActivity;
     private WindowManager.LayoutParams windowLayoutParams;
     private FrameLayout windowView;
@@ -322,6 +327,7 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
     private Object lastInsets;
 
     private MessageObject currentMessageObject;
+    private ImageReceiver.BitmapHolder currentThumb;
 
     private int coords[] = new int[2];
 
@@ -394,9 +400,13 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
         return localInstance;
     }
 
+    public static boolean hasInstance() {
+        return Instance != null;
+    }
+
     @SuppressWarnings("unchecked")
     @Override
-    public void didReceivedNotification(int id, Object... args) {
+    public void didReceivedNotification(int id, int account, Object... args) {
         if (id == NotificationCenter.messagesDeleted) {
             if (currentMessageObject == null) {
                 return;
@@ -574,6 +584,8 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
     }
 
     public void setParentActivity(Activity activity) {
+        currentAccount = UserConfig.selectedAccount;
+        centerImage.setCurrentAccount(currentAccount);
         if (parentActivity == activity) {
             return;
         }
@@ -649,17 +661,13 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
         containerView.setLayoutParams(layoutParams);
         if (Build.VERSION.SDK_INT >= 21) {
             containerView.setFitsSystemWindows(true);
-            containerView.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
-                @SuppressLint("NewApi")
-                @Override
-                public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
-                    WindowInsets oldInsets = (WindowInsets) lastInsets;
-                    lastInsets = insets;
-                    if (oldInsets == null || !oldInsets.toString().equals(insets.toString())) {
-                        windowView.requestLayout();
-                    }
-                    return insets.consumeSystemWindowInsets();
+            containerView.setOnApplyWindowInsetsListener((v, insets) -> {
+                WindowInsets oldInsets = (WindowInsets) lastInsets;
+                lastInsets = insets;
+                if (oldInsets == null || !oldInsets.toString().equals(insets.toString())) {
+                    windowView.requestLayout();
                 }
+                return insets.consumeSystemWindowInsets();
             });
             containerView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
         }
@@ -702,12 +710,13 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
         } else {
             windowLayoutParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         }
+        windowLayoutParams.flags |= WindowManager.LayoutParams.FLAG_SECURE;
         centerImage.setParentView(containerView);
         centerImage.setForceCrossfade(true);
     }
 
     public void openMedia(MessageObject messageObject, PhotoViewer.PhotoViewerProvider provider) {
-        if (parentActivity == null || messageObject == null || !messageObject.isSecretPhoto() || provider == null) {
+        if (parentActivity == null || messageObject == null || !messageObject.needDrawBluredPreview() || provider == null) {
             return;
         }
         final PhotoViewer.PlaceProviderObject object = provider.getPlaceForPhoto(messageObject, null, 0);
@@ -787,43 +796,53 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
         animateToScale = 1.0f;
         zoomAnimation = true;
 
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.messagesDeleted);
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.updateMessageMedia);
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.didCreatedNewDeleteTask);
+        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.messagesDeleted);
+        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.updateMessageMedia);
+        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.didCreatedNewDeleteTask);
         currentChannelId = messageObject.messageOwner.to_id != null ? messageObject.messageOwner.to_id.channel_id : 0;
         toggleActionBar(true, false);
 
         currentMessageObject = messageObject;
         TLRPC.Document document = messageObject.getDocument();
-        Bitmap thumb = object.imageReceiver.getThumbBitmap();
+        if (currentThumb != null) {
+            currentThumb.release();
+            currentThumb = null;
+        }
+        currentThumb = object.imageReceiver.getThumbBitmapSafe();
         if (document != null) {
-            actionBar.setTitle(LocaleController.getString("DisappearingVideo", R.string.DisappearingVideo));
-            File f = new File(messageObject.messageOwner.attachPath);
-            if (f.exists()) {
-                preparePlayer(f);
-            } else {
-                File file = FileLoader.getPathToMessage(messageObject.messageOwner);
-                File encryptedFile = new File(file.getAbsolutePath() + ".enc");
-                if (encryptedFile.exists()) {
-                    file = encryptedFile;
-                }
-                preparePlayer(file);
-            }
-            isVideo = true;
-            centerImage.setImage(null, null, thumb != null ? new BitmapDrawable(thumb) : null, -1, null, 2);
-            long destroyTime = (long) messageObject.messageOwner.destroyTime * 1000;
-            long currentTime = System.currentTimeMillis() + ConnectionsManager.getInstance().getTimeDifference() * 1000;
-            long timeToDestroy = destroyTime - currentTime;
-            long duration = messageObject.getDuration() * 1000;
-            if (duration > timeToDestroy) {
-                secretDeleteTimer.setDestroyTime(-1, -1, true);
-            } else {
+            if (MessageObject.isGifDocument(document)) {
+                actionBar.setTitle(LocaleController.getString("DisappearingGif", R.string.DisappearingGif));
+                centerImage.setImage(document, null, currentThumb != null ? new BitmapDrawable(currentThumb.bitmap) : null, -1, null, messageObject, 1);
                 secretDeleteTimer.setDestroyTime((long) messageObject.messageOwner.destroyTime * 1000, messageObject.messageOwner.ttl, false);
+            } else {
+                actionBar.setTitle(LocaleController.getString("DisappearingVideo", R.string.DisappearingVideo));
+                File f = new File(messageObject.messageOwner.attachPath);
+                if (f.exists()) {
+                    preparePlayer(f);
+                } else {
+                    File file = FileLoader.getPathToMessage(messageObject.messageOwner);
+                    File encryptedFile = new File(file.getAbsolutePath() + ".enc");
+                    if (encryptedFile.exists()) {
+                        file = encryptedFile;
+                    }
+                    preparePlayer(file);
+                }
+                isVideo = true;
+                centerImage.setImage(null, null, currentThumb != null ? new BitmapDrawable(currentThumb.bitmap) : null, -1, null, messageObject, 2);
+                long destroyTime = (long) messageObject.messageOwner.destroyTime * 1000;
+                long currentTime = System.currentTimeMillis() + ConnectionsManager.getInstance(currentAccount).getTimeDifference() * 1000;
+                long timeToDestroy = destroyTime - currentTime;
+                long duration = messageObject.getDuration() * 1000;
+                if (duration > timeToDestroy) {
+                    secretDeleteTimer.setDestroyTime(-1, -1, true);
+                } else {
+                    secretDeleteTimer.setDestroyTime((long) messageObject.messageOwner.destroyTime * 1000, messageObject.messageOwner.ttl, false);
+                }
             }
         } else {
             actionBar.setTitle(LocaleController.getString("DisappearingPhoto", R.string.DisappearingPhoto));
             TLRPC.PhotoSize sizeFull = FileLoader.getClosestPhotoSizeWithSize(messageObject.photoThumbs, AndroidUtilities.getPhotoSize());
-            centerImage.setImage(sizeFull.location, null, thumb != null ? new BitmapDrawable(thumb) : null, -1, null, 2);
+            centerImage.setImage(sizeFull, null, currentThumb != null ? new BitmapDrawable(currentThumb.bitmap) : null, -1, null, messageObject, 2);
             secretDeleteTimer.setDestroyTime((long) messageObject.messageOwner.destroyTime * 1000, messageObject.messageOwner.ttl, false);
         }
         try {
@@ -849,19 +868,16 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
                 ObjectAnimator.ofFloat(this, "animationValue", 0, 1)
         );
         photoAnimationInProgress = 3;
-        photoAnimationEndRunnable = new Runnable() {
-            @Override
-            public void run() {
-                photoAnimationInProgress = 0;
-                imageMoveAnimation = null;
-                if (containerView == null) {
-                    return;
-                }
-                if (Build.VERSION.SDK_INT >= 18) {
-                    containerView.setLayerType(View.LAYER_TYPE_NONE, null);
-                }
-                containerView.invalidate();
+        photoAnimationEndRunnable = () -> {
+            photoAnimationInProgress = 0;
+            imageMoveAnimation = null;
+            if (containerView == null) {
+                return;
             }
+            if (Build.VERSION.SDK_INT >= 18) {
+                containerView.setLayerType(View.LAYER_TYPE_NONE, null);
+            }
+            containerView.invalidate();
         };
         imageMoveAnimation.setDuration(250);
         imageMoveAnimation.addListener(new AnimatorListenerAdapter() {
@@ -879,12 +895,9 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
         }
         imageMoveAnimation.setInterpolator(new DecelerateInterpolator());
         photoBackgroundDrawable.frame = 0;
-        photoBackgroundDrawable.drawRunnable = new Runnable() {
-            @Override
-            public void run() {
-                disableShowCheck = false;
-                object.imageReceiver.setVisible(false, true);
-            }
+        photoBackgroundDrawable.drawRunnable = () -> {
+            disableShowCheck = false;
+            object.imageReceiver.setVisible(false, true);
         };
         imageMoveAnimation.start();
     }
@@ -932,11 +945,15 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
     }
 
     public void destroyPhotoViewer() {
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.messagesDeleted);
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.updateMessageMedia);
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.didCreatedNewDeleteTask);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.messagesDeleted);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.updateMessageMedia);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.didCreatedNewDeleteTask);
         isVisible = false;
         currentProvider = null;
+        if (currentThumb != null) {
+            currentThumb.release();
+            currentThumb = null;
+        }
         releasePlayer();
         if (parentActivity != null && windowView != null) {
             try {
@@ -1104,10 +1121,12 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
         canvas.restore();
     }
 
+    @Keep
     public float getVideoCrossfadeAlpha() {
         return videoCrossfadeAlpha;
     }
 
+    @Keep
     public void setVideoCrossfadeAlpha(float value) {
         videoCrossfadeAlpha = value;
         containerView.invalidate();
@@ -1143,9 +1162,9 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
             return;
         }
 
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.messagesDeleted);
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.updateMessageMedia);
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.didCreatedNewDeleteTask);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.messagesDeleted);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.updateMessageMedia);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.didCreatedNewDeleteTask);
 
         isActionBarVisible = false;
 
@@ -1222,17 +1241,14 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
                 );
             }
 
-            photoAnimationEndRunnable = new Runnable() {
-                @Override
-                public void run() {
-                    imageMoveAnimation = null;
-                    photoAnimationInProgress = 0;
-                    if (Build.VERSION.SDK_INT >= 18) {
-                        containerView.setLayerType(View.LAYER_TYPE_NONE, null);
-                    }
-                    containerView.setVisibility(View.INVISIBLE);
-                    onPhotoClosed(object);
+            photoAnimationEndRunnable = () -> {
+                imageMoveAnimation = null;
+                photoAnimationInProgress = 0;
+                if (Build.VERSION.SDK_INT >= 18) {
+                    containerView.setLayerType(View.LAYER_TYPE_NONE, null);
                 }
+                containerView.setVisibility(View.INVISIBLE);
+                onPhotoClosed(object);
             };
 
             imageMoveAnimation.setInterpolator(new DecelerateInterpolator());
@@ -1244,13 +1260,10 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
                         object.imageReceiver.setVisible(true, true);
                     }
                     isVisible = false;
-                    AndroidUtilities.runOnUIThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (photoAnimationEndRunnable != null) {
-                                photoAnimationEndRunnable.run();
-                                photoAnimationEndRunnable = null;
-                            }
+                    AndroidUtilities.runOnUIThread(() -> {
+                        if (photoAnimationEndRunnable != null) {
+                            photoAnimationEndRunnable.run();
+                            photoAnimationEndRunnable = null;
                         }
                     });
                 }
@@ -1269,21 +1282,18 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
                     ObjectAnimator.ofFloat(actionBar, "alpha", 0)
             );
             photoAnimationInProgress = 2;
-            photoAnimationEndRunnable = new Runnable() {
-                @Override
-                public void run() {
-                    if (containerView == null) {
-                        return;
-                    }
-                    if (Build.VERSION.SDK_INT >= 18) {
-                        containerView.setLayerType(View.LAYER_TYPE_NONE, null);
-                    }
-                    containerView.setVisibility(View.INVISIBLE);
-                    photoAnimationInProgress = 0;
-                    onPhotoClosed(object);
-                    containerView.setScaleX(1.0f);
-                    containerView.setScaleY(1.0f);
+            photoAnimationEndRunnable = () -> {
+                if (containerView == null) {
+                    return;
                 }
+                if (Build.VERSION.SDK_INT >= 18) {
+                    containerView.setLayerType(View.LAYER_TYPE_NONE, null);
+                }
+                containerView.setVisibility(View.INVISIBLE);
+                photoAnimationInProgress = 0;
+                onPhotoClosed(object);
+                containerView.setScaleX(1.0f);
+                containerView.setScaleY(1.0f);
             };
             animatorSet.setDuration(200);
             animatorSet.addListener(new AnimatorListenerAdapter() {
@@ -1309,20 +1319,21 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
         disableShowCheck = false;
         releasePlayer();
         ArrayList<File> filesToDelete = new ArrayList<>();
-        AndroidUtilities.runOnUIThread(new Runnable() {
-            @Override
-            public void run() {
-                centerImage.setImageBitmap((Bitmap) null);
-                try {
-                    if (windowView.getParent() != null) {
-                        WindowManager wm = (WindowManager) parentActivity.getSystemService(Context.WINDOW_SERVICE);
-                        wm.removeView(windowView);
-                    }
-                } catch (Exception e) {
-                    FileLog.e(e);
-                }
-                isPhotoVisible = false;
+        AndroidUtilities.runOnUIThread(() -> {
+            if (currentThumb != null) {
+                currentThumb.release();
+                currentThumb = null;
             }
+            centerImage.setImageBitmap((Bitmap) null);
+            try {
+                if (windowView.getParent() != null) {
+                    WindowManager wm = (WindowManager) parentActivity.getSystemService(Context.WINDOW_SERVICE);
+                    wm.removeView(windowView);
+                }
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+            isPhotoVisible = false;
         }, 50);
     }
 
@@ -1566,11 +1577,13 @@ public class SecretMediaViewer implements NotificationCenter.NotificationCenterD
         imageMoveAnimation.start();
     }
 
+    @Keep
     public void setAnimationValue(float value) {
         animationValue = value;
         containerView.invalidate();
     }
 
+    @Keep
     public float getAnimationValue() {
         return animationValue;
     }

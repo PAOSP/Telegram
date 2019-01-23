@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
@@ -11,6 +11,7 @@ package org.telegram.ui;
 import android.content.Context;
 import android.database.Cursor;
 import android.provider.MediaStore;
+import android.util.LongSparseArray;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -42,7 +43,6 @@ import org.telegram.ui.Components.RecyclerListView;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.HashMap;
 
 public class AudioSelectActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
 
@@ -55,7 +55,7 @@ public class AudioSelectActivity extends BaseFragment implements NotificationCen
     private boolean loadingAudio;
 
     private ArrayList<MediaController.AudioEntry> audioEntries = new ArrayList<>();
-    private HashMap<Long, MediaController.AudioEntry> selectedAudios = new HashMap<>();
+    private LongSparseArray<MediaController.AudioEntry> selectedAudios = new LongSparseArray<>();
 
     private AudioSelectActivityDelegate delegate;
 
@@ -68,8 +68,10 @@ public class AudioSelectActivity extends BaseFragment implements NotificationCen
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.closeChats);
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.messagePlayingDidReset);
+        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.closeChats);
+        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.messagePlayingDidReset);
+        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.messagePlayingDidStart);
+        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.messagePlayingPlayStateChanged);
         loadAudio();
         return true;
     }
@@ -77,8 +79,10 @@ public class AudioSelectActivity extends BaseFragment implements NotificationCen
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.closeChats);
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.messagePlayingDidReset);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.closeChats);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.messagePlayingDidReset);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.messagePlayingDidStart);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.messagePlayingPlayStateChanged);
         if (playingAudio != null && MediaController.getInstance().isPlayingMessage(playingAudio)) {
             MediaController.getInstance().cleanupPlayer(true, true);
         }
@@ -113,42 +117,31 @@ public class AudioSelectActivity extends BaseFragment implements NotificationCen
         listView.setVerticalScrollbarPosition(LocaleController.isRTL ? RecyclerListView.SCROLLBAR_POSITION_LEFT : RecyclerListView.SCROLLBAR_POSITION_RIGHT);
         frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP, 0, 0, 0, 48));
 
-        listView.setOnItemClickListener(new RecyclerListView.OnItemClickListener() {
-            @Override
-            public void onItemClick(View view, int position) {
-                AudioCell audioCell = (AudioCell) view;
-                MediaController.AudioEntry audioEntry = audioCell.getAudioEntry();
-                if (selectedAudios.containsKey(audioEntry.id)) {
-                    selectedAudios.remove(audioEntry.id);
-                    audioCell.setChecked(false);
-                } else {
-                    selectedAudios.put(audioEntry.id, audioEntry);
-                    audioCell.setChecked(true);
-                }
-                updateBottomLayoutCount();
+        listView.setOnItemClickListener((view, position) -> {
+            AudioCell audioCell = (AudioCell) view;
+            MediaController.AudioEntry audioEntry = audioCell.getAudioEntry();
+            if (selectedAudios.indexOfKey(audioEntry.id) >= 0) {
+                selectedAudios.remove(audioEntry.id);
+                audioCell.setChecked(false);
+            } else {
+                selectedAudios.put(audioEntry.id, audioEntry);
+                audioCell.setChecked(true);
             }
+            updateBottomLayoutCount();
         });
 
         bottomLayout = new PickerBottomLayout(context, false);
         frameLayout.addView(bottomLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.BOTTOM));
-        bottomLayout.cancelButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                finishFragment();
-            }
-        });
-        bottomLayout.doneButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                if (delegate != null) {
-                    ArrayList<MessageObject> audios = new ArrayList<>();
-                    for (HashMap.Entry<Long, MediaController.AudioEntry> entry : selectedAudios.entrySet()) {
-                        audios.add(entry.getValue().messageObject);
-                    }
-                    delegate.didSelectAudio(audios);
+        bottomLayout.cancelButton.setOnClickListener(view -> finishFragment());
+        bottomLayout.doneButton.setOnClickListener(view -> {
+            if (delegate != null) {
+                ArrayList<MessageObject> audios = new ArrayList<>();
+                for (int a = 0; a < selectedAudios.size(); a++) {
+                    audios.add(selectedAudios.valueAt(a).messageObject);
                 }
-                finishFragment();
+                delegate.didSelectAudio(audios);
             }
+            finishFragment();
         });
 
         View shadow = new View(context);
@@ -165,10 +158,10 @@ public class AudioSelectActivity extends BaseFragment implements NotificationCen
     }
 
     @Override
-    public void didReceivedNotification(int id, Object... args) {
+    public void didReceivedNotification(int id, int account, Object... args) {
         if (id == NotificationCenter.closeChats) {
             removeSelfFromStack();
-        } else if (id == NotificationCenter.messagePlayingDidReset) {
+        } else if (id == NotificationCenter.messagePlayingDidReset || id == NotificationCenter.messagePlayingDidStart || id == NotificationCenter.messagePlayingPlayStateChanged) {
             if (listViewAdapter != null) {
                 listViewAdapter.notifyDataSetChanged();
             }
@@ -188,90 +181,83 @@ public class AudioSelectActivity extends BaseFragment implements NotificationCen
         if (progressView != null) {
             progressView.showProgress();
         }
-        Utilities.globalQueue.postRunnable(new Runnable() {
-            @Override
-            public void run() {
-                String[] projection = {
-                        MediaStore.Audio.Media._ID,
-                        MediaStore.Audio.Media.ARTIST,
-                        MediaStore.Audio.Media.TITLE,
-                        MediaStore.Audio.Media.DATA,
-                        MediaStore.Audio.Media.DURATION,
-                        MediaStore.Audio.Media.ALBUM
-                };
+        Utilities.globalQueue.postRunnable(() -> {
+            String[] projection = {
+                    MediaStore.Audio.Media._ID,
+                    MediaStore.Audio.Media.ARTIST,
+                    MediaStore.Audio.Media.TITLE,
+                    MediaStore.Audio.Media.DATA,
+                    MediaStore.Audio.Media.DURATION,
+                    MediaStore.Audio.Media.ALBUM
+            };
 
-                final ArrayList<MediaController.AudioEntry> newAudioEntries = new ArrayList<>();
-                Cursor cursor = null;
-                try {
-                    cursor = ApplicationLoader.applicationContext.getContentResolver().query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, projection, MediaStore.Audio.Media.IS_MUSIC + " != 0", null, MediaStore.Audio.Media.TITLE);
-                    int id = -2000000000;
-                    while (cursor.moveToNext()) {
-                        MediaController.AudioEntry audioEntry = new MediaController.AudioEntry();
-                        audioEntry.id = cursor.getInt(0);
-                        audioEntry.author = cursor.getString(1);
-                        audioEntry.title = cursor.getString(2);
-                        audioEntry.path = cursor.getString(3);
-                        audioEntry.duration = (int) (cursor.getLong(4) / 1000);
-                        audioEntry.genre = cursor.getString(5);
+            final ArrayList<MediaController.AudioEntry> newAudioEntries = new ArrayList<>();
+            Cursor cursor = null;
+            try {
+                cursor = ApplicationLoader.applicationContext.getContentResolver().query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, projection, MediaStore.Audio.Media.IS_MUSIC + " != 0", null, MediaStore.Audio.Media.TITLE);
+                int id = -2000000000;
+                while (cursor.moveToNext()) {
+                    MediaController.AudioEntry audioEntry = new MediaController.AudioEntry();
+                    audioEntry.id = cursor.getInt(0);
+                    audioEntry.author = cursor.getString(1);
+                    audioEntry.title = cursor.getString(2);
+                    audioEntry.path = cursor.getString(3);
+                    audioEntry.duration = (int) (cursor.getLong(4) / 1000);
+                    audioEntry.genre = cursor.getString(5);
 
-                        File file = new File(audioEntry.path);
+                    File file = new File(audioEntry.path);
 
-                        TLRPC.TL_message message = new TLRPC.TL_message();
-                        message.out = true;
-                        message.id = id;
-                        message.to_id = new TLRPC.TL_peerUser();
-                        message.to_id.user_id = message.from_id = UserConfig.getClientUserId();
-                        message.date = (int) (System.currentTimeMillis() / 1000);
-                        message.message = "-1";
-                        message.attachPath = audioEntry.path;
-                        message.media = new TLRPC.TL_messageMediaDocument();
-                        message.media.flags |= 3;
-                        message.media.document = new TLRPC.TL_document();
-                        message.flags |= TLRPC.MESSAGE_FLAG_HAS_MEDIA | TLRPC.MESSAGE_FLAG_HAS_FROM_ID;
+                    TLRPC.TL_message message = new TLRPC.TL_message();
+                    message.out = true;
+                    message.id = id;
+                    message.to_id = new TLRPC.TL_peerUser();
+                    message.to_id.user_id = message.from_id = UserConfig.getInstance(currentAccount).getClientUserId();
+                    message.date = (int) (System.currentTimeMillis() / 1000);
+                    message.message = "";
+                    message.attachPath = audioEntry.path;
+                    message.media = new TLRPC.TL_messageMediaDocument();
+                    message.media.flags |= 3;
+                    message.media.document = new TLRPC.TL_document();
+                    message.flags |= TLRPC.MESSAGE_FLAG_HAS_MEDIA | TLRPC.MESSAGE_FLAG_HAS_FROM_ID;
 
-                        String ext = FileLoader.getFileExtension(file);
+                    String ext = FileLoader.getFileExtension(file);
 
-                        message.media.document.id = 0;
-                        message.media.document.access_hash = 0;
-                        message.media.document.date = message.date;
-                        message.media.document.mime_type = "audio/" + (ext.length() > 0 ? ext : "mp3");
-                        message.media.document.size = (int) file.length();
-                        message.media.document.thumb = new TLRPC.TL_photoSizeEmpty();
-                        message.media.document.thumb.type = "s";
-                        message.media.document.dc_id = 0;
+                    message.media.document.id = 0;
+                    message.media.document.access_hash = 0;
+                    message.media.document.file_reference = new byte[0];
+                    message.media.document.date = message.date;
+                    message.media.document.mime_type = "audio/" + (ext.length() > 0 ? ext : "mp3");
+                    message.media.document.size = (int) file.length();
+                    message.media.document.dc_id = 0;
 
-                        TLRPC.TL_documentAttributeAudio attributeAudio = new TLRPC.TL_documentAttributeAudio();
-                        attributeAudio.duration = audioEntry.duration;
-                        attributeAudio.title = audioEntry.title;
-                        attributeAudio.performer = audioEntry.author;
-                        attributeAudio.flags |= 3;
-                        message.media.document.attributes.add(attributeAudio);
+                    TLRPC.TL_documentAttributeAudio attributeAudio = new TLRPC.TL_documentAttributeAudio();
+                    attributeAudio.duration = audioEntry.duration;
+                    attributeAudio.title = audioEntry.title;
+                    attributeAudio.performer = audioEntry.author;
+                    attributeAudio.flags |= 3;
+                    message.media.document.attributes.add(attributeAudio);
 
-                        TLRPC.TL_documentAttributeFilename fileName = new TLRPC.TL_documentAttributeFilename();
-                        fileName.file_name = file.getName();
-                        message.media.document.attributes.add(fileName);
+                    TLRPC.TL_documentAttributeFilename fileName = new TLRPC.TL_documentAttributeFilename();
+                    fileName.file_name = file.getName();
+                    message.media.document.attributes.add(fileName);
 
-                        audioEntry.messageObject = new MessageObject(message, null, false);
+                    audioEntry.messageObject = new MessageObject(currentAccount, message, false);
 
-                        newAudioEntries.add(audioEntry);
-                        id--;
-                    }
-                } catch (Exception e) {
-                    FileLog.e(e);
-                } finally {
-                    if (cursor != null) {
-                        cursor.close();
-                    }
+                    newAudioEntries.add(audioEntry);
+                    id--;
                 }
-                AndroidUtilities.runOnUIThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        audioEntries = newAudioEntries;
-                        progressView.showTextView();
-                        listViewAdapter.notifyDataSetChanged();
-                    }
-                });
+            } catch (Exception e) {
+                FileLog.e(e);
+            } finally {
+                if (cursor != null) {
+                    cursor.close();
+                }
             }
+            AndroidUtilities.runOnUIThread(() -> {
+                audioEntries = newAudioEntries;
+                progressView.showTextView();
+                listViewAdapter.notifyDataSetChanged();
+            });
         });
     }
 
@@ -305,19 +291,14 @@ public class AudioSelectActivity extends BaseFragment implements NotificationCen
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
             AudioCell view = new AudioCell(mContext);
-            view.setDelegate(new AudioCell.AudioCellDelegate() {
-                @Override
-                public void startedPlayingAudio(MessageObject messageObject) {
-                    playingAudio = messageObject;
-                }
-            });
+            view.setDelegate(messageObject -> playingAudio = messageObject);
             return new RecyclerListView.Holder(view);
         }
 
         @Override
         public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
             MediaController.AudioEntry audioEntry = audioEntries.get(position);
-            ((AudioCell) holder.itemView).setAudio(audioEntries.get(position), position != audioEntries.size() - 1, selectedAudios.containsKey(audioEntry.id));
+            ((AudioCell) holder.itemView).setAudio(audioEntries.get(position), position != audioEntries.size() - 1, selectedAudios.indexOfKey(audioEntry.id) >= 0);
         }
 
         @Override

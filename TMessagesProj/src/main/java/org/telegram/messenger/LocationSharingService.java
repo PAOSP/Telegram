@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.messenger;
@@ -29,7 +29,7 @@ public class LocationSharingService extends Service implements NotificationCente
 
     public LocationSharingService() {
         super();
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.liveLocationsChanged);
+        NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.liveLocationsChanged);
     }
 
     @Override
@@ -42,7 +42,9 @@ public class LocationSharingService extends Service implements NotificationCente
                 Utilities.stageQueue.postRunnable(new Runnable() {
                     @Override
                     public void run() {
-                        LocationController.getInstance().update();
+                        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                            LocationController.getInstance(a).update();
+                        }
                     }
                 });
             }
@@ -59,20 +61,21 @@ public class LocationSharingService extends Service implements NotificationCente
             handler.removeCallbacks(runnable);
         }
         stopForeground(true);
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.liveLocationsChanged);
+        NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.liveLocationsChanged);
     }
 
     @Override
-    public void didReceivedNotification(int id, Object... args) {
+    public void didReceivedNotification(int id, int account, Object... args) {
         if (id == NotificationCenter.liveLocationsChanged) {
             if (handler != null) {
                 handler.post(new Runnable() {
                     @Override
                     public void run() {
-                        if (LocationController.getInstance().sharingLocationsUI.isEmpty()) {
+                        ArrayList<LocationController.SharingLocationInfo> infos = getInfos();
+                        if (infos.isEmpty()) {
                             stopSelf();
                         } else {
-                            updateNotification();
+                            updateNotification(true);
                         }
                     }
                 });
@@ -80,20 +83,32 @@ public class LocationSharingService extends Service implements NotificationCente
         }
     }
 
-    private void updateNotification() {
+    private ArrayList<LocationController.SharingLocationInfo> getInfos() {
+        ArrayList<LocationController.SharingLocationInfo> infos = new ArrayList<>();
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            ArrayList<LocationController.SharingLocationInfo> arrayList = LocationController.getInstance(a).sharingLocationsUI;
+            if (!arrayList.isEmpty()) {
+                infos.addAll(arrayList);
+            }
+        }
+        return infos;
+    }
+
+    private void updateNotification(boolean post) {
         if (builder == null) {
             return;
         }
         String param;
-        ArrayList<LocationController.SharingLocationInfo> infos = LocationController.getInstance().sharingLocationsUI;
+        ArrayList<LocationController.SharingLocationInfo> infos = getInfos();
         if (infos.size() == 1) {
             LocationController.SharingLocationInfo info = infos.get(0);
             int lower_id = (int) info.messageObject.getDialogId();
+            int currentAccount = info.messageObject.currentAccount;
             if (lower_id > 0) {
-                TLRPC.User user = MessagesController.getInstance().getUser(lower_id);
+                TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(lower_id);
                 param = UserObject.getFirstName(user);
             } else {
-                TLRPC.Chat chat = MessagesController.getInstance().getChat(-lower_id);
+                TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(-lower_id);
                 if (chat != null) {
                     param = chat.title;
                 } else {
@@ -101,35 +116,39 @@ public class LocationSharingService extends Service implements NotificationCente
                 }
             }
         } else {
-            param = LocaleController.formatPluralString("Chats", LocationController.getInstance().sharingLocationsUI.size());
+            param = LocaleController.formatPluralString("Chats", infos.size());
         }
         String str = String.format(LocaleController.getString("AttachLiveLocationIsSharing", R.string.AttachLiveLocationIsSharing), LocaleController.getString("AttachLiveLocation", R.string.AttachLiveLocation), param);
         builder.setTicker(str);
         builder.setContentText(str);
-        NotificationManagerCompat.from(ApplicationLoader.applicationContext).notify(6, builder.build());
+        if (post) {
+            NotificationManagerCompat.from(ApplicationLoader.applicationContext).notify(6, builder.build());
+        }
     }
 
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (LocationController.getInstance().sharingLocationsUI.isEmpty()) {
+        if (getInfos().isEmpty()) {
             stopSelf();
         }
         if (builder == null) {
             Intent intent2 = new Intent(ApplicationLoader.applicationContext, LaunchActivity.class);
             intent2.setAction("org.tmessages.openlocations");
-            intent2.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            intent2.addCategory(Intent.CATEGORY_LAUNCHER);
             PendingIntent contentIntent = PendingIntent.getActivity(ApplicationLoader.applicationContext, 0, intent2, 0);
 
             builder = new NotificationCompat.Builder(ApplicationLoader.applicationContext);
             builder.setWhen(System.currentTimeMillis());
-            builder.setSmallIcon(R.drawable.notification);
+            builder.setSmallIcon(R.drawable.live_loc);
             builder.setContentIntent(contentIntent);
+            NotificationsController.checkOtherNotificationsChannel();
+            builder.setChannelId(NotificationsController.OTHER_NOTIFICATIONS_CHANNEL);
             builder.setContentTitle(LocaleController.getString("AppName", R.string.AppName));
             Intent stopIntent = new Intent(ApplicationLoader.applicationContext, StopLiveLocationReceiver.class);
             builder.addAction(0, LocaleController.getString("StopLiveLocation", R.string.StopLiveLocation), PendingIntent.getBroadcast(ApplicationLoader.applicationContext, 2, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT));
         }
 
+        updateNotification(false);
         startForeground(6, builder.build());
-        updateNotification();
         return Service.START_NOT_STICKY;
     }
 }

@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -11,17 +11,20 @@ package org.telegram.ui.Components;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Paint;
+import android.graphics.PixelFormat;
 import android.graphics.RectF;
 import android.view.animation.DecelerateInterpolator;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.NotificationCenter;
+import org.telegram.messenger.UserConfig;
 import org.telegram.ui.ActionBar.Theme;
 
 public class PlayingGameDrawable extends StatusDrawable {
 
     private boolean isChat = false;
     private Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private int currentAccount = UserConfig.selectedAccount;
 
     private long lastUpdateTime = 0;
     private boolean started = false;
@@ -105,7 +108,7 @@ public class PlayingGameDrawable extends StatusDrawable {
 
     private void checkUpdate() {
         if (started) {
-            if (!NotificationCenter.getInstance().isAnimationInProgress()) {
+            if (!NotificationCenter.getInstance(currentAccount).isAnimationInProgress()) {
                 update();
             } else {
                 AndroidUtilities.runOnUIThread(new Runnable() {
@@ -130,7 +133,7 @@ public class PlayingGameDrawable extends StatusDrawable {
 
     @Override
     public int getOpacity() {
-        return 0;
+        return PixelFormat.TRANSPARENT;
     }
 
     @Override

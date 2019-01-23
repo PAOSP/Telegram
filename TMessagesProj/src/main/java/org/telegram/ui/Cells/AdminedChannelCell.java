@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -22,6 +22,7 @@ import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
+import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.SimpleTextView;
 import org.telegram.ui.ActionBar.Theme;
@@ -39,6 +40,7 @@ public class AdminedChannelCell extends FrameLayout {
     private ImageView deleteButton;
     private TLRPC.Chat currentChannel;
     private boolean isLast;
+    private int currentAccount = UserConfig.selectedAccount;
 
     public AdminedChannelCell(Context context, View.OnClickListener onClickListener) {
         super(context);
@@ -75,14 +77,14 @@ public class AdminedChannelCell extends FrameLayout {
         if (channel.photo != null) {
             photo = channel.photo.photo_small;
         }
-        final String url = MessagesController.getInstance().linkPrefix + "/";
+        final String url = MessagesController.getInstance(currentAccount).linkPrefix + "/";
         currentChannel = channel;
         avatarDrawable.setInfo(channel);
         nameTextView.setText(channel.title);
         SpannableStringBuilder stringBuilder = new SpannableStringBuilder(url + channel.username);
         stringBuilder.setSpan(new URLSpanNoUnderline(""), url.length(), stringBuilder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         statusTextView.setText(stringBuilder);
-        avatarImageView.setImage(photo, "50_50", avatarDrawable);
+        avatarImageView.setImage(photo, "50_50", avatarDrawable, currentChannel);
         isLast = last;
     }
 

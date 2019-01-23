@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -15,8 +15,11 @@ import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.os.Build;
+import android.support.annotation.Keep;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.TextureView;
@@ -29,12 +32,14 @@ import android.webkit.WebView;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 
+import com.google.android.exoplayer2.ui.AspectRatioFrameLayout;
+
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.R;
-import org.telegram.messenger.exoplayer2.ui.AspectRatioFrameLayout;
 import org.telegram.ui.ActionBar.ActionBar;
+import org.telegram.ui.PhotoViewer;
 
 import java.util.ArrayList;
 
@@ -42,6 +47,7 @@ public class PipVideoView {
 
     private FrameLayout windowView;
     private EmbedBottomSheet parentSheet;
+    private PhotoViewer photoViewer;
     private Activity parentActivity;
     private View controlsView;
     private int videoWidth;
@@ -54,33 +60,113 @@ public class PipVideoView {
 
     private class MiniControlsView extends FrameLayout {
 
+        private Paint progressPaint;
+        private Paint progressInnerPaint;
         private boolean isVisible = true;
         private AnimatorSet currentAnimation;
         private ImageView inlineButton;
-        private Runnable hideRunnable = new Runnable() {
+        private ImageView playButton;
+        private float progress;
+        private boolean isCompleted;
+        private float bufferedPosition;
+
+        private Runnable hideRunnable = () -> show(false, true);
+
+        private Runnable progressRunnable = new Runnable() {
             @Override
             public void run() {
-                show(false, true);
+                if (photoViewer == null) {
+                    return;
+                }
+                VideoPlayer videoPlayer = photoViewer.getVideoPlayer();
+                if (videoPlayer == null) {
+                    return;
+                }
+                setProgress(videoPlayer.getCurrentPosition() / (float) videoPlayer.getDuration());
+                if (photoViewer == null) {
+                    setBufferedProgress(videoPlayer.getBufferedPosition() / (float) videoPlayer.getDuration());
+                }
+
+                AndroidUtilities.runOnUIThread(progressRunnable, 1000);
             }
         };
 
-        public MiniControlsView(Context context) {
+        public MiniControlsView(Context context, boolean fullControls) {
             super(context);
-            setWillNotDraw(false);
 
             inlineButton = new ImageView(context);
             inlineButton.setScaleType(ImageView.ScaleType.CENTER);
             inlineButton.setImageResource(R.drawable.ic_outinline);
             addView(inlineButton, LayoutHelper.createFrame(56, 48, Gravity.RIGHT | Gravity.TOP));
-            inlineButton.setOnClickListener(new OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (parentSheet == null) {
-                        return;
-                    }
+            inlineButton.setOnClickListener(v -> {
+                if (parentSheet != null) {
                     parentSheet.exitFromPip();
+                } else if (photoViewer != null) {
+                    photoViewer.exitFromPip();
                 }
             });
+
+            if (fullControls) {
+                progressPaint = new Paint();
+                progressPaint.setColor(0xff19a7e8);
+                progressInnerPaint = new Paint();
+                progressInnerPaint.setColor(0xff959197);
+
+                setWillNotDraw(false);
+                playButton = new ImageView(context);
+                playButton.setScaleType(ImageView.ScaleType.CENTER);
+                addView(playButton, LayoutHelper.createFrame(48, 48, Gravity.CENTER));
+                playButton.setOnClickListener(v -> {
+                    if (photoViewer == null) {
+                        return;
+                    }
+                    VideoPlayer videoPlayer = photoViewer.getVideoPlayer();
+                    if (videoPlayer == null) {
+                        return;
+                    }
+                    if (videoPlayer.isPlaying()) {
+                        videoPlayer.pause();
+                    } else {
+                        videoPlayer.play();
+                    }
+                    updatePlayButton();
+                });
+            }
+
+            setOnTouchListener((v, event) -> true);
+            updatePlayButton();
+            show(false, false);
+        }
+
+        private void updatePlayButton() {
+            if (photoViewer == null) {
+                return;
+            }
+            VideoPlayer videoPlayer = photoViewer.getVideoPlayer();
+            if (videoPlayer == null) {
+                return;
+            }
+            AndroidUtilities.cancelRunOnUIThread(progressRunnable);
+            if (!videoPlayer.isPlaying()) {
+                if (isCompleted) {
+                    playButton.setImageResource(R.drawable.ic_againinline);
+                } else {
+                    playButton.setImageResource(R.drawable.ic_playinline);
+                }
+            } else {
+                playButton.setImageResource(R.drawable.ic_pauseinline);
+                AndroidUtilities.runOnUIThread(progressRunnable, 500);
+            }
+        }
+
+        public void setBufferedProgress(float position) {
+            bufferedPosition = position;
+            invalidate();
+        }
+
+        public void setProgress(float value) {
+            progress = value;
+            invalidate();
         }
 
         public void show(boolean value, boolean animated) {
@@ -156,9 +242,37 @@ public class PipVideoView {
             super.onAttachedToWindow();
             checkNeedHide();
         }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            int width = getMeasuredWidth();
+            int height = getMeasuredHeight();
+
+            int progressLineY = height - AndroidUtilities.dp(3);
+            int progressLineX = 0;
+            int cy = height - AndroidUtilities.dp(7);
+            int progressX = progressLineX + (int) ((width - progressLineX) * progress);
+            if (bufferedPosition != 0) {
+                canvas.drawRect(progressLineX, progressLineY, progressLineX + (width - progressLineX) * bufferedPosition, progressLineY + AndroidUtilities.dp(3), progressInnerPaint);
+            }
+            canvas.drawRect(progressLineX, progressLineY, progressX, progressLineY + AndroidUtilities.dp(3), progressPaint);
+        }
     }
 
     public TextureView show(Activity activity, EmbedBottomSheet sheet, View controls, float aspectRatio, int rotation, WebView webview) {
+        return show(activity, null, sheet, controls, aspectRatio, rotation, webview);
+    }
+
+    public TextureView show(Activity activity, PhotoViewer viewer, float aspectRatio, int rotation) {
+        return show(activity, viewer, null, null, aspectRatio, rotation, null);
+    }
+
+    public TextureView show(Activity activity, PhotoViewer viewer, EmbedBottomSheet sheet, View controls, float aspectRatio, int rotation, WebView webview) {
+
+        parentSheet = sheet;
+        parentActivity = activity;
+        photoViewer = viewer;
+
         windowView = new FrameLayout(activity) {
 
             private float startX;
@@ -261,7 +375,7 @@ public class PipVideoView {
         }
 
         if (controls == null) {
-            controlsView = new MiniControlsView(activity);
+            controlsView = new MiniControlsView(activity, viewer != null);
         } else {
             controlsView = controls;
         }
@@ -295,10 +409,35 @@ public class PipVideoView {
             FileLog.e(e);
             return null;
         }
-        parentSheet = sheet;
-        parentActivity = activity;
+
 
         return textureView;
+    }
+
+    public void onVideoCompleted() {
+        if (controlsView instanceof MiniControlsView) {
+            MiniControlsView miniControlsView = (MiniControlsView) controlsView;
+            miniControlsView.isCompleted = true;
+            miniControlsView.progress = 0;
+            miniControlsView.bufferedPosition = 0;
+            miniControlsView.updatePlayButton();
+            miniControlsView.invalidate();
+            miniControlsView.show(true, true);
+        }
+    }
+
+    public void setBufferedProgress(float progress) {
+        if (controlsView instanceof MiniControlsView) {
+            ((MiniControlsView) controlsView).setBufferedProgress(progress);
+        }
+    }
+
+    public void updatePlayButton() {
+        if (controlsView instanceof MiniControlsView) {
+            MiniControlsView miniControlsView = (MiniControlsView) controlsView;
+            miniControlsView.updatePlayButton();
+            miniControlsView.invalidate();
+        }
     }
 
     private static int getSideCoord(boolean isX, int side, float p, int sideSize) {
@@ -329,6 +468,7 @@ public class PipVideoView {
             //don't promt
         }
         parentSheet = null;
+        photoViewer = null;
         parentActivity = null;
     }
 
@@ -416,6 +556,8 @@ public class PipVideoView {
                     public void onAnimationEnd(Animator animation) {
                         if (parentSheet != null) {
                             parentSheet.destroy();
+                        } else if (photoViewer != null) {
+                            photoViewer.destroyPhotoViewer();
                         }
                     }
                 });
@@ -445,19 +587,23 @@ public class PipVideoView {
         return new Rect(getSideCoord(true, sidex, px, videoWidth), getSideCoord(false, sidey, py, videoHeight), videoWidth, videoHeight);
     }
 
+    @Keep
     public int getX() {
         return windowLayoutParams.x;
     }
 
+    @Keep
     public int getY() {
         return windowLayoutParams.y;
     }
 
+    @Keep
     public void setX(int value) {
         windowLayoutParams.x = value;
         windowManager.updateViewLayout(windowView, windowLayoutParams);
     }
 
+    @Keep
     public void setY(int value) {
         windowLayoutParams.y = value;
         windowManager.updateViewLayout(windowView, windowLayoutParams);

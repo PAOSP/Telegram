@@ -1,18 +1,16 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
 
-import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.view.View;
@@ -26,14 +24,16 @@ import org.telegram.SQLite.SQLitePreparedStatement;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.ClearCacheService;
+import org.telegram.messenger.DataQuery;
 import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.ImageLoader;
 import org.telegram.messenger.LocaleController;
+import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.R;
+import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
-import org.telegram.messenger.query.BotQuery;
 import org.telegram.messenger.support.widget.LinearLayoutManager;
 import org.telegram.messenger.support.widget.RecyclerView;
 import org.telegram.tgnet.NativeByteBuffer;
@@ -92,44 +92,37 @@ public class CacheControlActivity extends BaseFragment {
         databaseRow = rowCount++;
         databaseInfoRow = rowCount++;
 
-        File file = new File(ApplicationLoader.getFilesDirFixed(), "cache4.db");
-        databaseSize = file.length();
+        databaseSize = MessagesStorage.getInstance(currentAccount).getDatabaseSize();
 
-        Utilities.globalQueue.postRunnable(new Runnable() {
-            @Override
-            public void run() {
-                cacheSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_CACHE), 0);
-                if (canceled) {
-                    return;
-                }
-                photoSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_IMAGE), 0);
-                if (canceled) {
-                    return;
-                }
-                videoSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_VIDEO), 0);
-                if (canceled) {
-                    return;
-                }
-                documentsSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), 1);
-                if (canceled) {
-                    return;
-                }
-                musicSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), 2);
-                if (canceled) {
-                    return;
-                }
-                audioSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_AUDIO), 0);
-                totalSize = cacheSize + videoSize + audioSize + photoSize + documentsSize + musicSize;
-                AndroidUtilities.runOnUIThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        calculating = false;
-                        if (listAdapter != null) {
-                            listAdapter.notifyDataSetChanged();
-                        }
-                    }
-                });
+        Utilities.globalQueue.postRunnable(() -> {
+            cacheSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_CACHE), 0);
+            if (canceled) {
+                return;
             }
+            photoSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_IMAGE), 0);
+            if (canceled) {
+                return;
+            }
+            videoSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_VIDEO), 0);
+            if (canceled) {
+                return;
+            }
+            documentsSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), 1);
+            if (canceled) {
+                return;
+            }
+            musicSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), 2);
+            if (canceled) {
+                return;
+            }
+            audioSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_AUDIO), 0);
+            totalSize = cacheSize + videoSize + audioSize + photoSize + documentsSize + musicSize;
+            AndroidUtilities.runOnUIThread(() -> {
+                calculating = false;
+                if (listAdapter != null) {
+                    listAdapter.notifyDataSetChanged();
+                }
+            });
         });
 
         return true;
@@ -147,34 +140,7 @@ public class CacheControlActivity extends BaseFragment {
         }
         long size = 0;
         if (dir.isDirectory()) {
-            try {
-                File[] array = dir.listFiles();
-                if (array != null) {
-                    for (int a = 0; a < array.length; a++) {
-                        if (canceled) {
-                            return 0;
-                        }
-                        File file = array[a];
-                        if (documentsMusicType == 1 || documentsMusicType == 2) {
-                            String name = file.getName().toLowerCase();
-                            if (name.endsWith(".mp3") || name.endsWith(".m4a")) {
-                                if (documentsMusicType == 1) {
-                                    continue;
-                                }
-                            } else if (documentsMusicType == 2) {
-                                continue;
-                            }
-                        }
-                        if (file.isDirectory()) {
-                            size += getDirectorySize(file, documentsMusicType);
-                        } else {
-                            size += file.length();
-                        }
-                    }
-                }
-            } catch (Throwable e) {
-                FileLog.e(e);
-            }
+            size = Utilities.getDirSize(dir.getAbsolutePath(), documentsMusicType);
         } else if (dir.isFile()) {
             size += dir.length();
         }
@@ -182,104 +148,72 @@ public class CacheControlActivity extends BaseFragment {
     }
 
     private void cleanupFolders() {
-        final AlertDialog progressDialog = new AlertDialog(getParentActivity(), 1);
-        progressDialog.setMessage(LocaleController.getString("Loading", R.string.Loading));
-        progressDialog.setCanceledOnTouchOutside(false);
-        progressDialog.setCancelable(false);
+        final AlertDialog progressDialog = new AlertDialog(getParentActivity(), 3);
+        progressDialog.setCanCacnel(false);
         progressDialog.show();
-        Utilities.globalQueue.postRunnable(new Runnable() {
-            @Override
-            public void run() {
-                boolean imagesCleared = false;
-                for (int a = 0; a < 6; a++) {
-                    if (!clear[a]) {
-                        continue;
-                    }
-                    int type = -1;
-                    int documentsMusicType = 0;
-                    if (a == 0) {
-                        type = FileLoader.MEDIA_DIR_IMAGE;
-                    } else if (a == 1) {
-                        type = FileLoader.MEDIA_DIR_VIDEO;
-                    } else if (a == 2) {
-                        type = FileLoader.MEDIA_DIR_DOCUMENT;
-                        documentsMusicType = 1;
-                    } else if (a == 3) {
-                        type = FileLoader.MEDIA_DIR_DOCUMENT;
-                        documentsMusicType = 2;
-                    } else if (a == 4) {
-                        type = FileLoader.MEDIA_DIR_AUDIO;
-                    } else if (a == 5) {
-                        type = FileLoader.MEDIA_DIR_CACHE;
-                    }
-                    if (type == -1) {
-                        continue;
-                    }
-                    File file = FileLoader.getInstance().checkDirectory(type);
-                    if (file != null) {
-                        try {
-                            File[] array = file.listFiles();
-                            if (array != null) {
-                                for (int b = 0; b < array.length; b++) {
-                                    String name = array[b].getName().toLowerCase();
-                                    if (documentsMusicType == 1 || documentsMusicType == 2) {
-                                        if (name.endsWith(".mp3") || name.endsWith(".m4a")) {
-                                            if (documentsMusicType == 1) {
-                                                continue;
-                                            }
-                                        } else if (documentsMusicType == 2) {
-                                            continue;
-                                        }
-                                    }
-                                    if (name.equals(".nomedia")) {
-                                        continue;
-                                    }
-                                    if (array[b].isFile()) {
-                                        array[b].delete();
-                                    }
-                                }
-                            }
-                        } catch (Throwable e) {
-                            FileLog.e(e);
-                        }
-                    }
-                    if (type == FileLoader.MEDIA_DIR_CACHE) {
-                        cacheSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_CACHE), documentsMusicType);
-                        imagesCleared = true;
-                    } else if (type == FileLoader.MEDIA_DIR_AUDIO) {
-                        audioSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_AUDIO), documentsMusicType);
-                    } else if (type == FileLoader.MEDIA_DIR_DOCUMENT) {
-                        if (documentsMusicType == 1) {
-                            documentsSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), documentsMusicType);
-                        } else {
-                            musicSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), documentsMusicType);
-                        }
-                    } else if (type == FileLoader.MEDIA_DIR_IMAGE) {
-                        imagesCleared = true;
-                        photoSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_IMAGE), documentsMusicType);
-                    } else if (type == FileLoader.MEDIA_DIR_VIDEO) {
-                        videoSize = getDirectorySize(FileLoader.getInstance().checkDirectory(FileLoader.MEDIA_DIR_VIDEO), documentsMusicType);
-                    }
+        Utilities.globalQueue.postRunnable(() -> {
+            boolean imagesCleared = false;
+            for (int a = 0; a < 6; a++) {
+                if (!clear[a]) {
+                    continue;
                 }
-                final boolean imagesClearedFinal = imagesCleared;
-                totalSize = cacheSize + videoSize + audioSize + photoSize + documentsSize + musicSize;
-                AndroidUtilities.runOnUIThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (imagesClearedFinal) {
-                            ImageLoader.getInstance().clearMemory();
-                        }
-                        if (listAdapter != null) {
-                            listAdapter.notifyDataSetChanged();
-                        }
-                        try {
-                            progressDialog.dismiss();
-                        } catch (Exception e) {
-                            FileLog.e(e);
-                        }
+                int type = -1;
+                int documentsMusicType = 0;
+                if (a == 0) {
+                    type = FileLoader.MEDIA_DIR_IMAGE;
+                } else if (a == 1) {
+                    type = FileLoader.MEDIA_DIR_VIDEO;
+                } else if (a == 2) {
+                    type = FileLoader.MEDIA_DIR_DOCUMENT;
+                    documentsMusicType = 1;
+                } else if (a == 3) {
+                    type = FileLoader.MEDIA_DIR_DOCUMENT;
+                    documentsMusicType = 2;
+                } else if (a == 4) {
+                    type = FileLoader.MEDIA_DIR_AUDIO;
+                } else if (a == 5) {
+                    type = FileLoader.MEDIA_DIR_CACHE;
+                }
+                if (type == -1) {
+                    continue;
+                }
+                File file = FileLoader.checkDirectory(type);
+                if (file != null) {
+                    Utilities.clearDir(file.getAbsolutePath(), documentsMusicType, Long.MAX_VALUE);
+                }
+                if (type == FileLoader.MEDIA_DIR_CACHE) {
+                    cacheSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_CACHE), documentsMusicType);
+                    imagesCleared = true;
+                } else if (type == FileLoader.MEDIA_DIR_AUDIO) {
+                    audioSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_AUDIO), documentsMusicType);
+                } else if (type == FileLoader.MEDIA_DIR_DOCUMENT) {
+                    if (documentsMusicType == 1) {
+                        documentsSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), documentsMusicType);
+                    } else {
+                        musicSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), documentsMusicType);
                     }
-                });
+                } else if (type == FileLoader.MEDIA_DIR_IMAGE) {
+                    imagesCleared = true;
+                    photoSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_IMAGE), documentsMusicType);
+                } else if (type == FileLoader.MEDIA_DIR_VIDEO) {
+                    videoSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_VIDEO), documentsMusicType);
+                }
             }
+            final boolean imagesClearedFinal = imagesCleared;
+            totalSize = cacheSize + videoSize + audioSize + photoSize + documentsSize + musicSize;
+            AndroidUtilities.runOnUIThread(() -> {
+                if (imagesClearedFinal) {
+                    ImageLoader.getInstance().clearMemory();
+                }
+                if (listAdapter != null) {
+                    listAdapter.notifyDataSetChanged();
+                }
+                try {
+                    progressDialog.dismiss();
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+            });
         });
     }
 
@@ -308,223 +242,204 @@ public class CacheControlActivity extends BaseFragment {
         listView.setLayoutManager(new LinearLayoutManager(context, LinearLayoutManager.VERTICAL, false));
         frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         listView.setAdapter(listAdapter);
-        listView.setOnItemClickListener(new RecyclerListView.OnItemClickListener() {
-            @Override
-            public void onItemClick(View view, int position) {
-                if (getParentActivity() == null) {
-                    return;
-                }
-                if (position == keepMediaRow) {
-                    BottomSheet.Builder builder = new BottomSheet.Builder(getParentActivity());
-                    builder.setItems(new CharSequence[]{LocaleController.formatPluralString("Days", 3), LocaleController.formatPluralString("Weeks", 1), LocaleController.formatPluralString("Months", 1), LocaleController.getString("KeepMediaForever", R.string.KeepMediaForever)}, new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialog, final int which) {
-                            SharedPreferences.Editor editor = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE).edit();
-                            if (which == 0) {
-                                editor.putInt("keep_media", 3).commit();
-                            } else if (which == 1) {
-                                editor.putInt("keep_media", 0).commit();
-                            } else if (which == 2) {
-                                editor.putInt("keep_media", 1).commit();
-                            } else if (which == 3) {
-                                editor.putInt("keep_media", 2).commit();
+        listView.setOnItemClickListener((view, position) -> {
+            if (getParentActivity() == null) {
+                return;
+            }
+            if (position == keepMediaRow) {
+                BottomSheet.Builder builder = new BottomSheet.Builder(getParentActivity());
+                builder.setItems(new CharSequence[]{LocaleController.formatPluralString("Days", 3), LocaleController.formatPluralString("Weeks", 1), LocaleController.formatPluralString("Months", 1), LocaleController.getString("KeepMediaForever", R.string.KeepMediaForever)}, (dialog, which) -> {
+                    SharedPreferences.Editor editor = MessagesController.getGlobalMainSettings().edit();
+                    if (which == 0) {
+                        editor.putInt("keep_media", 3);
+                    } else if (which == 1) {
+                        editor.putInt("keep_media", 0);
+                    } else if (which == 2) {
+                        editor.putInt("keep_media", 1);
+                    } else if (which == 3) {
+                        editor.putInt("keep_media", 2);
+                    }
+                    editor.commit();
+                    if (listAdapter != null) {
+                        listAdapter.notifyDataSetChanged();
+                    }
+                    PendingIntent pintent = PendingIntent.getService(ApplicationLoader.applicationContext, 1, new Intent(ApplicationLoader.applicationContext, ClearCacheService.class), 0);
+                    AlarmManager alarmManager = (AlarmManager) ApplicationLoader.applicationContext.getSystemService(Context.ALARM_SERVICE);
+                    alarmManager.cancel(pintent);
+                    if (which != 3) {
+                        alarmManager.setInexactRepeating(AlarmManager.RTC_WAKEUP, 0, AlarmManager.INTERVAL_DAY, pintent);
+                    }
+                });
+                showDialog(builder.create());
+            } else if (position == databaseRow) {
+                AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+                builder.setTitle(LocaleController.getString("AppName", R.string.AppName));
+                builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
+                builder.setMessage(LocaleController.getString("LocalDatabaseClear", R.string.LocalDatabaseClear));
+                builder.setPositiveButton(LocaleController.getString("CacheClear", R.string.CacheClear), (dialogInterface, i) -> {
+                    final AlertDialog progressDialog = new AlertDialog(getParentActivity(), 3);
+                    progressDialog.setCanCacnel(false);
+                    progressDialog.show();
+                    MessagesStorage.getInstance(currentAccount).getStorageQueue().postRunnable(() -> {
+                        try {
+                            SQLiteDatabase database = MessagesStorage.getInstance(currentAccount).getDatabase();
+                            ArrayList<Long> dialogsToCleanup = new ArrayList<>();
+
+                            SQLiteCursor cursor = database.queryFinalized("SELECT did FROM dialogs WHERE 1");
+                            StringBuilder ids = new StringBuilder();
+                            while (cursor.next()) {
+                                long did = cursor.longValue(0);
+                                int lower_id = (int) did;
+                                int high_id = (int) (did >> 32);
+                                if (lower_id != 0 && high_id != 1) {
+                                    dialogsToCleanup.add(did);
+                                }
                             }
-                            if (listAdapter != null) {
-                                listAdapter.notifyDataSetChanged();
-                            }
-                            PendingIntent pintent = PendingIntent.getService(ApplicationLoader.applicationContext, 0, new Intent(ApplicationLoader.applicationContext, ClearCacheService.class), 0);
-                            AlarmManager alarmManager = (AlarmManager) ApplicationLoader.applicationContext.getSystemService(Context.ALARM_SERVICE);
-                            if (which == 2) {
-                                alarmManager.cancel(pintent);
-                            } else {
-                                alarmManager.setInexactRepeating(AlarmManager.ELAPSED_REALTIME_WAKEUP, AlarmManager.INTERVAL_DAY, AlarmManager.INTERVAL_DAY, pintent);
-                            }
-                        }
-                    });
-                    showDialog(builder.create());
-                } else if (position == databaseRow) {
-                    AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-                    builder.setTitle(LocaleController.getString("AppName", R.string.AppName));
-                    builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
-                    builder.setMessage(LocaleController.getString("LocalDatabaseClear", R.string.LocalDatabaseClear));
-                    builder.setPositiveButton(LocaleController.getString("CacheClear", R.string.CacheClear), new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialogInterface, int i) {
-                            final AlertDialog progressDialog = new AlertDialog(getParentActivity(), 1);
-                            progressDialog.setMessage(LocaleController.getString("Loading", R.string.Loading));
-                            progressDialog.setCanceledOnTouchOutside(false);
-                            progressDialog.setCancelable(false);
-                            progressDialog.show();
-                            MessagesStorage.getInstance().getStorageQueue().postRunnable(new Runnable() {
-                                @Override
-                                public void run() {
+                            cursor.dispose();
+
+                            SQLitePreparedStatement state5 = database.executeFast("REPLACE INTO messages_holes VALUES(?, ?, ?)");
+                            SQLitePreparedStatement state6 = database.executeFast("REPLACE INTO media_holes_v2 VALUES(?, ?, ?, ?)");
+
+                            database.beginTransaction();
+                            for (int a = 0; a < dialogsToCleanup.size(); a++) {
+                                Long did = dialogsToCleanup.get(a);
+                                int messagesCount = 0;
+                                cursor = database.queryFinalized("SELECT COUNT(mid) FROM messages WHERE uid = " + did);
+                                if (cursor.next()) {
+                                    messagesCount = cursor.intValue(0);
+                                }
+                                cursor.dispose();
+                                if (messagesCount <= 2) {
+                                    continue;
+                                }
+
+                                cursor = database.queryFinalized("SELECT last_mid_i, last_mid FROM dialogs WHERE did = " + did);
+                                int messageId = -1;
+                                if (cursor.next()) {
+                                    long last_mid_i = cursor.longValue(0);
+                                    long last_mid = cursor.longValue(1);
+                                    SQLiteCursor cursor2 = database.queryFinalized("SELECT data FROM messages WHERE uid = " + did + " AND mid IN (" + last_mid_i + "," + last_mid + ")");
                                     try {
-                                        SQLiteDatabase database = MessagesStorage.getInstance().getDatabase();
-                                        ArrayList<Long> dialogsToCleanup = new ArrayList<>();
-                                        SQLiteCursor cursor = database.queryFinalized("SELECT did FROM dialogs WHERE 1");
-                                        StringBuilder ids = new StringBuilder();
-                                        while (cursor.next()) {
-                                            long did = cursor.longValue(0);
-                                            int lower_id = (int) did;
-                                            int high_id = (int) (did >> 32);
-                                            if (lower_id != 0 && high_id != 1) {
-                                                dialogsToCleanup.add(did);
-                                            }
-                                        }
-                                        cursor.dispose();
-
-                                        SQLitePreparedStatement state5 = database.executeFast("REPLACE INTO messages_holes VALUES(?, ?, ?)");
-                                        SQLitePreparedStatement state6 = database.executeFast("REPLACE INTO media_holes_v2 VALUES(?, ?, ?, ?)");
-
-                                        database.beginTransaction();
-                                        for (int a = 0; a < dialogsToCleanup.size(); a++) {
-                                            Long did = dialogsToCleanup.get(a);
-                                            int messagesCount = 0;
-                                            cursor = database.queryFinalized("SELECT COUNT(mid) FROM messages WHERE uid = " + did);
-                                            if (cursor.next()) {
-                                                messagesCount = cursor.intValue(0);
-                                            }
-                                            cursor.dispose();
-                                            if (messagesCount <= 2) {
-                                                continue;
-                                            }
-
-                                            cursor = database.queryFinalized("SELECT last_mid_i, last_mid FROM dialogs WHERE did = " + did);
-                                            int messageId = -1;
-                                            if (cursor.next()) {
-                                                long last_mid_i = cursor.longValue(0);
-                                                long last_mid = cursor.longValue(1);
-                                                SQLiteCursor cursor2 = database.queryFinalized("SELECT data FROM messages WHERE uid = " + did + " AND mid IN (" + last_mid_i + "," + last_mid + ")");
-                                                try {
-                                                    while (cursor2.next()) {
-                                                        NativeByteBuffer data = cursor2.byteBufferValue(0);
-                                                        if (data != null) {
-                                                            TLRPC.Message message = TLRPC.Message.TLdeserialize(data, data.readInt32(false), false);
-                                                            data.reuse();
-                                                            if (message != null) {
-                                                                messageId = message.id;
-                                                            }
-                                                        }
-                                                    }
-                                                } catch (Exception e) {
-                                                    FileLog.e(e);
-                                                }
-                                                cursor2.dispose();
-
-                                                database.executeFast("DELETE FROM messages WHERE uid = " + did + " AND mid != " + last_mid_i + " AND mid != " + last_mid).stepThis().dispose();
-                                                database.executeFast("DELETE FROM messages_holes WHERE uid = " + did).stepThis().dispose();
-                                                database.executeFast("DELETE FROM bot_keyboard WHERE uid = " + did).stepThis().dispose();
-                                                database.executeFast("DELETE FROM media_counts_v2 WHERE uid = " + did).stepThis().dispose();
-                                                database.executeFast("DELETE FROM media_v2 WHERE uid = " + did).stepThis().dispose();
-                                                database.executeFast("DELETE FROM media_holes_v2 WHERE uid = " + did).stepThis().dispose();
-                                                BotQuery.clearBotKeyboard(did, null);
-                                                if (messageId != -1) {
-                                                    MessagesStorage.createFirstHoles(did, state5, state6, messageId);
+                                        while (cursor2.next()) {
+                                            NativeByteBuffer data = cursor2.byteBufferValue(0);
+                                            if (data != null) {
+                                                TLRPC.Message message = TLRPC.Message.TLdeserialize(data, data.readInt32(false), false);
+                                                message.readAttachPath(data, UserConfig.getInstance(currentAccount).clientUserId);
+                                                data.reuse();
+                                                if (message != null) {
+                                                    messageId = message.id;
                                                 }
                                             }
-                                            cursor.dispose();
                                         }
-                                        state5.dispose();
-                                        state6.dispose();
-                                        database.commitTransaction();
-                                        database.executeFast("VACUUM").stepThis().dispose();
                                     } catch (Exception e) {
                                         FileLog.e(e);
-                                    } finally {
-                                        AndroidUtilities.runOnUIThread(new Runnable() {
-                                            @Override
-                                            public void run() {
-                                                try {
-                                                    progressDialog.dismiss();
-                                                } catch (Exception e) {
-                                                    FileLog.e(e);
-                                                }
-                                                if (listAdapter != null) {
-                                                    File file = new File(ApplicationLoader.getFilesDirFixed(), "cache4.db");
-                                                    databaseSize = file.length();
-                                                    listAdapter.notifyDataSetChanged();
-                                                }
-                                            }
-                                        });
+                                    }
+                                    cursor2.dispose();
+
+                                    database.executeFast("DELETE FROM messages WHERE uid = " + did + " AND mid != " + last_mid_i + " AND mid != " + last_mid).stepThis().dispose();
+                                    database.executeFast("DELETE FROM messages_holes WHERE uid = " + did).stepThis().dispose();
+                                    database.executeFast("DELETE FROM bot_keyboard WHERE uid = " + did).stepThis().dispose();
+                                    database.executeFast("DELETE FROM media_counts_v2 WHERE uid = " + did).stepThis().dispose();
+                                    database.executeFast("DELETE FROM media_v2 WHERE uid = " + did).stepThis().dispose();
+                                    database.executeFast("DELETE FROM media_holes_v2 WHERE uid = " + did).stepThis().dispose();
+                                    DataQuery.getInstance(currentAccount).clearBotKeyboard(did, null);
+                                    if (messageId != -1) {
+                                        MessagesStorage.createFirstHoles(did, state5, state6, messageId);
                                     }
                                 }
-                            });
-                        }
-                    });
-                    showDialog(builder.create());
-                } else if (position == cacheRow) {
-                    if (totalSize <= 0 || getParentActivity() == null) {
-                        return;
-                    }
-                    BottomSheet.Builder builder = new BottomSheet.Builder(getParentActivity());
-                    builder.setApplyTopPadding(false);
-                    builder.setApplyBottomPadding(false);
-                    LinearLayout linearLayout = new LinearLayout(getParentActivity());
-                    linearLayout.setOrientation(LinearLayout.VERTICAL);
-                    for (int a = 0; a < 6; a++) {
-                        long size = 0;
-                        String name = null;
-                        if (a == 0) {
-                            size = photoSize;
-                            name = LocaleController.getString("LocalPhotoCache", R.string.LocalPhotoCache);
-                        } else if (a == 1) {
-                            size = videoSize;
-                            name = LocaleController.getString("LocalVideoCache", R.string.LocalVideoCache);
-                        } else if (a == 2) {
-                            size = documentsSize;
-                            name = LocaleController.getString("LocalDocumentCache", R.string.LocalDocumentCache);
-                        } else if (a == 3) {
-                            size = musicSize;
-                            name = LocaleController.getString("LocalMusicCache", R.string.LocalMusicCache);
-                        } else if (a == 4) {
-                            size = audioSize;
-                            name = LocaleController.getString("LocalAudioCache", R.string.LocalAudioCache);
-                        } else if (a == 5) {
-                            size = cacheSize;
-                            name = LocaleController.getString("LocalCache", R.string.LocalCache);
-                        }
-                        if (size > 0) {
-                            clear[a] = true;
-                            CheckBoxCell checkBoxCell = new CheckBoxCell(getParentActivity(), true);
-                            checkBoxCell.setTag(a);
-                            checkBoxCell.setBackgroundDrawable(Theme.getSelectorDrawable(false));
-                            linearLayout.addView(checkBoxCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
-                            checkBoxCell.setText(name, AndroidUtilities.formatFileSize(size), true, true);
-                            checkBoxCell.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
-                            checkBoxCell.setOnClickListener(new View.OnClickListener() {
-                                @Override
-                                public void onClick(View v) {
-                                    CheckBoxCell cell = (CheckBoxCell) v;
-                                    int num = (Integer) cell.getTag();
-                                    clear[num] = !clear[num];
-                                    cell.setChecked(clear[num], true);
-                                }
-                            });
-                        } else {
-                            clear[a] = false;
-                        }
-                    }
-                    BottomSheet.BottomSheetCell cell = new BottomSheet.BottomSheetCell(getParentActivity(), 1);
-                    cell.setBackgroundDrawable(Theme.getSelectorDrawable(false));
-                    cell.setTextAndIcon(LocaleController.getString("ClearMediaCache", R.string.ClearMediaCache).toUpperCase(), 0);
-                    cell.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteRedText));
-                    cell.setOnClickListener(new View.OnClickListener() {
-                        @Override
-                        public void onClick(View v) {
-                            try {
-                                if (visibleDialog != null) {
-                                    visibleDialog.dismiss();
-                                }
-                            } catch (Exception e) {
-                                FileLog.e(e);
+                                cursor.dispose();
                             }
-                            cleanupFolders();
+
+                            state5.dispose();
+                            state6.dispose();
+                            database.commitTransaction();
+                            database.executeFast("PRAGMA journal_size_limit = 0").stepThis().dispose();
+                            database.executeFast("VACUUM").stepThis().dispose();
+                            database.executeFast("PRAGMA journal_size_limit = -1").stepThis().dispose();
+                        } catch (Exception e) {
+                            FileLog.e(e);
+                        } finally {
+                            AndroidUtilities.runOnUIThread(() -> {
+                                try {
+                                    progressDialog.dismiss();
+                                } catch (Exception e) {
+                                    FileLog.e(e);
+                                }
+                                if (listAdapter != null) {
+                                    databaseSize = MessagesStorage.getInstance(currentAccount).getDatabaseSize();
+                                    listAdapter.notifyDataSetChanged();
+                                }
+                            });
                         }
                     });
-                    linearLayout.addView(cell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
-                    builder.setCustomView(linearLayout);
-                    showDialog(builder.create());
+                });
+                showDialog(builder.create());
+            } else if (position == cacheRow) {
+                if (totalSize <= 0 || getParentActivity() == null) {
+                    return;
                 }
+                BottomSheet.Builder builder = new BottomSheet.Builder(getParentActivity());
+                builder.setApplyTopPadding(false);
+                builder.setApplyBottomPadding(false);
+                LinearLayout linearLayout = new LinearLayout(getParentActivity());
+                linearLayout.setOrientation(LinearLayout.VERTICAL);
+                for (int a = 0; a < 6; a++) {
+                    long size = 0;
+                    String name = null;
+                    if (a == 0) {
+                        size = photoSize;
+                        name = LocaleController.getString("LocalPhotoCache", R.string.LocalPhotoCache);
+                    } else if (a == 1) {
+                        size = videoSize;
+                        name = LocaleController.getString("LocalVideoCache", R.string.LocalVideoCache);
+                    } else if (a == 2) {
+                        size = documentsSize;
+                        name = LocaleController.getString("LocalDocumentCache", R.string.LocalDocumentCache);
+                    } else if (a == 3) {
+                        size = musicSize;
+                        name = LocaleController.getString("LocalMusicCache", R.string.LocalMusicCache);
+                    } else if (a == 4) {
+                        size = audioSize;
+                        name = LocaleController.getString("LocalAudioCache", R.string.LocalAudioCache);
+                    } else if (a == 5) {
+                        size = cacheSize;
+                        name = LocaleController.getString("LocalCache", R.string.LocalCache);
+                    }
+                    if (size > 0) {
+                        clear[a] = true;
+                        CheckBoxCell checkBoxCell = new CheckBoxCell(getParentActivity(), 1, 21);
+                        checkBoxCell.setTag(a);
+                        checkBoxCell.setBackgroundDrawable(Theme.getSelectorDrawable(false));
+                        linearLayout.addView(checkBoxCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+                        checkBoxCell.setText(name, AndroidUtilities.formatFileSize(size), true, true);
+                        checkBoxCell.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
+                        checkBoxCell.setOnClickListener(v -> {
+                            CheckBoxCell cell = (CheckBoxCell) v;
+                            int num = (Integer) cell.getTag();
+                            clear[num] = !clear[num];
+                            cell.setChecked(clear[num], true);
+                        });
+                    } else {
+                        clear[a] = false;
+                    }
+                }
+                BottomSheet.BottomSheetCell cell = new BottomSheet.BottomSheetCell(getParentActivity(), 1);
+                cell.setBackgroundDrawable(Theme.getSelectorDrawable(false));
+                cell.setTextAndIcon(LocaleController.getString("ClearMediaCache", R.string.ClearMediaCache).toUpperCase(), 0);
+                cell.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteRedText));
+                cell.setOnClickListener(v -> {
+                    try {
+                        if (visibleDialog != null) {
+                            visibleDialog.dismiss();
+                        }
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                    }
+                    cleanupFolders();
+                });
+                linearLayout.addView(cell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+                builder.setCustomView(linearLayout);
+                showDialog(builder.create());
             }
         });
 
@@ -588,7 +503,7 @@ public class CacheControlActivity extends BaseFragment {
                             textCell.setTextAndValue(LocaleController.getString("ClearMediaCache", R.string.ClearMediaCache), totalSize == 0 ? LocaleController.getString("CacheEmpty", R.string.CacheEmpty) : AndroidUtilities.formatFileSize(totalSize), false);
                         }
                     } else if (position == keepMediaRow) {
-                        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+                        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
                         int keepMedia = preferences.getInt("keep_media", 2);
                         String value;
                         if (keepMedia == 0) {

@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -16,10 +16,12 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.support.annotation.Keep;
 import android.view.View;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.FileLog;
+import org.telegram.messenger.ImageReceiver;
 
 public class ClippingImageView extends View {
 
@@ -30,7 +32,7 @@ public class ClippingImageView extends View {
     private int orientation;
     private RectF drawRect;
     private Paint paint;
-    private Bitmap bmp;
+    private ImageReceiver.BitmapHolder bmp;
     private Matrix matrix;
 
     private boolean needRadius;
@@ -60,10 +62,12 @@ public class ClippingImageView extends View {
         animationValues = values;
     }
 
+    @Keep
     public float getAnimationProgress() {
         return animationProgress;
     }
 
+    @Keep
     public void setAnimationProgress(float progress) {
         animationProgress = progress;
 
@@ -107,7 +111,7 @@ public class ClippingImageView extends View {
         if (getVisibility() != VISIBLE) {
             return;
         }
-        if (bmp != null) {
+        if (bmp != null && !bmp.isRecycled()) {
             float scaleY = getScaleY();
             canvas.save();
 
@@ -157,7 +161,7 @@ public class ClippingImageView extends View {
 
                 canvas.clipRect(clipLeft / scaleY, clipTop / scaleY, getWidth() - clipRight / scaleY, getHeight() - clipBottom / scaleY);
                 try {
-                    canvas.drawBitmap(bmp, matrix, paint);
+                    canvas.drawBitmap(bmp.bitmap, matrix, paint);
                 } catch (Exception e) {
                     FileLog.e(e);
                 }
@@ -202,16 +206,28 @@ public class ClippingImageView extends View {
         orientation = angle;
     }
 
-    public void setImageBitmap(Bitmap bitmap) {
+    public void setImageBitmap(ImageReceiver.BitmapHolder bitmap) {
+        if (bmp != null) {
+            bmp.release();
+            bitmapShader = null;
+        }
         bmp = bitmap;
-        if (bitmap != null) {
+        if (bitmap != null && bitmap.bitmap != null) {
             bitmapRect.set(0, 0, bitmap.getWidth(), bitmap.getHeight());
             if (needRadius) {
-                bitmapShader = new BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+                bitmapShader = new BitmapShader(bitmap.bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
                 roundPaint.setShader(bitmapShader);
             }
         }
         invalidate();
+    }
+
+    public Bitmap getBitmap() {
+        return bmp != null ? bmp.bitmap : null;
+    }
+
+    public int getOrientation() {
+        return orientation;
     }
 
     public void setNeedRadius(boolean value) {

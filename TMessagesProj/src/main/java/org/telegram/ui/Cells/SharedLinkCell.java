@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -18,7 +18,9 @@ import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
+import android.view.ViewConfiguration;
 import android.widget.FrameLayout;
 
 import org.telegram.messenger.AndroidUtilities;
@@ -44,10 +46,64 @@ public class SharedLinkCell extends FrameLayout {
     public interface SharedLinkCellDelegate {
         void needOpenWebView(TLRPC.WebPage webPage);
         boolean canPerformActions();
+        void onLinkLongPress(final String urlFinal);
+    }
+
+    private boolean checkingForLongPress = false;
+    private CheckForLongPress pendingCheckForLongPress = null;
+    private int pressCount = 0;
+    private CheckForTap pendingCheckForTap = null;
+
+    private final class CheckForTap implements Runnable {
+        public void run() {
+            if (pendingCheckForLongPress == null) {
+                pendingCheckForLongPress = new CheckForLongPress();
+            }
+            pendingCheckForLongPress.currentPressCount = ++pressCount;
+            postDelayed(pendingCheckForLongPress, ViewConfiguration.getLongPressTimeout() - ViewConfiguration.getTapTimeout());
+        }
+    }
+
+    class CheckForLongPress implements Runnable {
+        public int currentPressCount;
+
+        public void run() {
+            if (checkingForLongPress && getParent() != null && currentPressCount == pressCount) {
+                checkingForLongPress = false;
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                if (pressedLink >= 0) {
+                    delegate.onLinkLongPress(links.get(pressedLink));
+                }
+                MotionEvent event = MotionEvent.obtain(0, 0, MotionEvent.ACTION_CANCEL, 0, 0, 0);
+                onTouchEvent(event);
+                event.recycle();
+            }
+        }
+    }
+
+    protected void startCheckLongPress() {
+        if (checkingForLongPress) {
+            return;
+        }
+        checkingForLongPress = true;
+        if (pendingCheckForTap == null) {
+            pendingCheckForTap = new CheckForTap();
+        }
+        postDelayed(pendingCheckForTap, ViewConfiguration.getTapTimeout());
+    }
+
+    protected void cancelCheckLongPress() {
+        checkingForLongPress = false;
+        if (pendingCheckForLongPress != null) {
+            removeCallbacks(pendingCheckForLongPress);
+        }
+        if (pendingCheckForTap != null) {
+            removeCallbacks(pendingCheckForTap);
+        }
     }
 
     private boolean linkPreviewPressed;
-    private LinkPath urlPath = new LinkPath();
+    private LinkPath urlPath;
     private int pressedLink;
 
     private ImageReceiver linkImageView;
@@ -63,13 +119,13 @@ public class SharedLinkCell extends FrameLayout {
     private int linkY;
     private ArrayList<StaticLayout> linkLayout = new ArrayList<>();
 
-    private int titleY = AndroidUtilities.dp(7);
+    private int titleY = AndroidUtilities.dp(10);
     private StaticLayout titleLayout;
 
-    private int descriptionY = AndroidUtilities.dp(27);
+    private int descriptionY = AndroidUtilities.dp(30);
     private StaticLayout descriptionLayout;
 
-    private int description2Y = AndroidUtilities.dp(27);
+    private int description2Y = AndroidUtilities.dp(30);
     private StaticLayout descriptionLayout2;
 
     private MessageObject message;
@@ -80,17 +136,21 @@ public class SharedLinkCell extends FrameLayout {
     public SharedLinkCell(Context context) {
         super(context);
 
+        urlPath = new LinkPath();
+        urlPath.setUseRoundRect(true);
+
         titleTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         titleTextPaint.setTypeface(AndroidUtilities.getTypeface("fonts/rmedium.ttf"));
         titleTextPaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
 
         descriptionTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
 
-        titleTextPaint.setTextSize(AndroidUtilities.dp(16));
-        descriptionTextPaint.setTextSize(AndroidUtilities.dp(16));
+        titleTextPaint.setTextSize(AndroidUtilities.dp(14));
+        descriptionTextPaint.setTextSize(AndroidUtilities.dp(14));
 
         setWillNotDraw(false);
         linkImageView = new ImageReceiver(this);
+        linkImageView.setRoundRadius(AndroidUtilities.dp(4));
         letterDrawable = new LetterDrawable();
 
         checkBox = new CheckBox(context, R.drawable.round_check2);
@@ -106,7 +166,6 @@ public class SharedLinkCell extends FrameLayout {
         descriptionLayout = null;
         titleLayout = null;
         descriptionLayout2 = null;
-        description2Y = descriptionY;
         linkLayout.clear();
         links.clear();
 
@@ -202,20 +261,23 @@ public class SharedLinkCell extends FrameLayout {
 
         if (title != null) {
             try {
-                int width = (int) Math.ceil(titleTextPaint.measureText(title));
-                CharSequence titleFinal = TextUtils.ellipsize(title.replace('\n', ' '), titleTextPaint, Math.min(width, maxWidth), TextUtils.TruncateAt.END);
-                titleLayout = new StaticLayout(titleFinal, titleTextPaint, maxWidth, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+                titleLayout = ChatMessageCell.generateStaticLayout(title, titleTextPaint, maxWidth, maxWidth, 0, 3);
+                if (titleLayout.getLineCount() > 0) {
+                    descriptionY = titleY + titleLayout.getLineBottom(titleLayout.getLineCount() - 1) + AndroidUtilities.dp(4);
+                }
             } catch (Exception e) {
                 FileLog.e(e);
             }
             letterDrawable.setTitle(title);
         }
+        description2Y = descriptionY;
+        int desctiptionLines = Math.max(1, 4 - (titleLayout != null ? titleLayout.getLineCount() : 0));
 
         if (description != null) {
             try {
-                descriptionLayout = ChatMessageCell.generateStaticLayout(description, descriptionTextPaint, maxWidth, maxWidth, 0, 3);
+                descriptionLayout = ChatMessageCell.generateStaticLayout(description, descriptionTextPaint, maxWidth, maxWidth, 0, desctiptionLines);
                 if (descriptionLayout.getLineCount() > 0) {
-                    description2Y = descriptionY + descriptionLayout.getLineBottom(descriptionLayout.getLineCount() - 1) + AndroidUtilities.dp(1);
+                    description2Y = descriptionY + descriptionLayout.getLineBottom(descriptionLayout.getLineCount() - 1) + AndroidUtilities.dp(5);
                 }
             } catch (Exception e) {
                 FileLog.e(e);
@@ -224,8 +286,7 @@ public class SharedLinkCell extends FrameLayout {
 
         if (description2 != null) {
             try {
-                descriptionLayout2 = ChatMessageCell.generateStaticLayout(description2, descriptionTextPaint, maxWidth, maxWidth, 0, 3);
-                int height = descriptionLayout2.getLineBottom(descriptionLayout2.getLineCount() - 1);
+                descriptionLayout2 = ChatMessageCell.generateStaticLayout(description2, descriptionTextPaint, maxWidth, maxWidth, 0, desctiptionLines);
                 if (descriptionLayout != null) {
                     description2Y += AndroidUtilities.dp(10);
                 }
@@ -243,7 +304,7 @@ public class SharedLinkCell extends FrameLayout {
                     StaticLayout layout = new StaticLayout(linkFinal, descriptionTextPaint, maxWidth, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
                     linkY = description2Y;
                     if (descriptionLayout2 != null && descriptionLayout2.getLineCount() != 0) {
-                        linkY += descriptionLayout2.getLineBottom(descriptionLayout2.getLineCount() - 1) + AndroidUtilities.dp(1);
+                        linkY += descriptionLayout2.getLineBottom(descriptionLayout2.getLineCount() - 1) + AndroidUtilities.dp(5);
                     }
                     linkLayout.add(layout);
                 } catch (Exception e) {
@@ -254,7 +315,7 @@ public class SharedLinkCell extends FrameLayout {
 
         int maxPhotoWidth = AndroidUtilities.dp(52);
         int x = LocaleController.isRTL ? MeasureSpec.getSize(widthMeasureSpec) - AndroidUtilities.dp(10) - maxPhotoWidth : AndroidUtilities.dp(10);
-        letterDrawable.setBounds(x, AndroidUtilities.dp(10), x + maxPhotoWidth, AndroidUtilities.dp(62));
+        letterDrawable.setBounds(x, AndroidUtilities.dp(11), x + maxPhotoWidth, AndroidUtilities.dp(63));
 
         if (hasPhoto) {
             TLRPC.PhotoSize currentPhotoObject = FileLoader.getClosestPhotoSizeWithSize(message.photoThumbs, maxPhotoWidth, true);
@@ -266,22 +327,22 @@ public class SharedLinkCell extends FrameLayout {
             if (currentPhotoObjectThumb != null) {
                 currentPhotoObjectThumb.size = -1;
             }
-            linkImageView.setImageCoords(x, AndroidUtilities.dp(10), maxPhotoWidth, maxPhotoWidth);
+            linkImageView.setImageCoords(x, AndroidUtilities.dp(11), maxPhotoWidth, maxPhotoWidth);
             String fileName = FileLoader.getAttachFileName(currentPhotoObject);
             String filter = String.format(Locale.US, "%d_%d", maxPhotoWidth, maxPhotoWidth);
-            linkImageView.setImage(currentPhotoObject.location, filter, currentPhotoObjectThumb != null ? currentPhotoObjectThumb.location : null, String.format(Locale.US, "%d_%d_b", maxPhotoWidth, maxPhotoWidth), 0, null, 0);
+            linkImageView.setImage(currentPhotoObject, filter, currentPhotoObjectThumb, String.format(Locale.US, "%d_%d_b", maxPhotoWidth, maxPhotoWidth), 0, null, message, 0);
             drawLinkImageView = true;
         }
 
         int height = 0;
         if (titleLayout != null && titleLayout.getLineCount() != 0) {
-            height += titleLayout.getLineBottom(titleLayout.getLineCount() - 1);
+            height += titleLayout.getLineBottom(titleLayout.getLineCount() - 1) + AndroidUtilities.dp(4);
         }
         if (descriptionLayout != null && descriptionLayout.getLineCount() != 0) {
-            height += descriptionLayout.getLineBottom(descriptionLayout.getLineCount() - 1);
+            height += descriptionLayout.getLineBottom(descriptionLayout.getLineCount() - 1) + AndroidUtilities.dp(5);
         }
         if (descriptionLayout2 != null && descriptionLayout2.getLineCount() != 0) {
-            height += descriptionLayout2.getLineBottom(descriptionLayout2.getLineCount() - 1);
+            height += descriptionLayout2.getLineBottom(descriptionLayout2.getLineCount() - 1) + AndroidUtilities.dp(5);
             if (descriptionLayout != null) {
                 height += AndroidUtilities.dp(10);
             }
@@ -292,11 +353,8 @@ public class SharedLinkCell extends FrameLayout {
                 height += layout.getLineBottom(layout.getLineCount() - 1);
             }
         }
-        if (hasPhoto) {
-            height = Math.max(AndroidUtilities.dp(48), height);
-        }
         checkBox.measure(MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(22), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(22), MeasureSpec.EXACTLY));
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), Math.max(AndroidUtilities.dp(72), height + AndroidUtilities.dp(16)) + (needDivider ? 1 : 0));
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), Math.max(AndroidUtilities.dp(76), height + AndroidUtilities.dp(17)) + (needDivider ? 1 : 0));
     }
 
     public void setLink(MessageObject messageObject, boolean divider) {
@@ -351,6 +409,7 @@ public class SharedLinkCell extends FrameLayout {
                                 resetPressedLink();
                                 pressedLink = a;
                                 linkPreviewPressed = true;
+                                startCheckLongPress();
                                 try {
                                     urlPath.setCurrentLayout(layout, 0, 0);
                                     layout.getSelectionPath(0, layout.getText().length(), urlPath);
@@ -399,6 +458,7 @@ public class SharedLinkCell extends FrameLayout {
     protected void resetPressedLink() {
         pressedLink = -1;
         linkPreviewPressed = false;
+        cancelCheckLongPress();
         invalidate();
     }
 

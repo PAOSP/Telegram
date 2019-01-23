@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
@@ -23,8 +23,6 @@ import org.telegram.messenger.R;
 import org.telegram.messenger.support.widget.LinearLayoutManager;
 import org.telegram.messenger.support.widget.RecyclerView;
 import org.telegram.tgnet.ConnectionsManager;
-import org.telegram.tgnet.RequestDelegate;
-import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -93,21 +91,18 @@ public class CommonGroupsActivity extends BaseFragment {
         listView.setVerticalScrollbarPosition(LocaleController.isRTL ? RecyclerListView.SCROLLBAR_POSITION_LEFT : RecyclerListView.SCROLLBAR_POSITION_RIGHT);
         frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
-        listView.setOnItemClickListener(new RecyclerListView.OnItemClickListener() {
-            @Override
-            public void onItemClick(View view, int position) {
-                if (position < 0 || position >= chats.size()) {
-                    return;
-                }
-                TLRPC.Chat chat = chats.get(position);
-                Bundle args = new Bundle();
-                args.putInt("chat_id", chat.id);
-                if (!MessagesController.checkCanOpenChat(args, CommonGroupsActivity.this)) {
-                    return;
-                }
-                NotificationCenter.getInstance().postNotificationName(NotificationCenter.closeChats);
-                presentFragment(new ChatActivity(args), true);
+        listView.setOnItemClickListener((view, position) -> {
+            if (position < 0 || position >= chats.size()) {
+                return;
             }
+            TLRPC.Chat chat = chats.get(position);
+            Bundle args = new Bundle();
+            args.putInt("chat_id", chat.id);
+            if (!MessagesController.getInstance(currentAccount).checkCanOpenChat(args, CommonGroupsActivity.this)) {
+                return;
+            }
+            NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.closeChats);
+            presentFragment(new ChatActivity(args), true);
         });
         listView.setOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
@@ -143,39 +138,31 @@ public class CommonGroupsActivity extends BaseFragment {
             listViewAdapter.notifyDataSetChanged();
         }
         TLRPC.TL_messages_getCommonChats req = new TLRPC.TL_messages_getCommonChats();
-        req.user_id = MessagesController.getInputUser(userId);
+        req.user_id = MessagesController.getInstance(currentAccount).getInputUser(userId);
         if (req.user_id instanceof TLRPC.TL_inputUserEmpty) {
             return;
         }
         req.limit = count;
         req.max_id = max_id;
-        int reqId = ConnectionsManager.getInstance().sendRequest(req, new RequestDelegate() {
-            @Override
-            public void run(final TLObject response, final TLRPC.TL_error error) {
-                AndroidUtilities.runOnUIThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (error == null) {
-                            TLRPC.messages_Chats res = (TLRPC.messages_Chats) response;
-                            MessagesController.getInstance().putChats(res.chats, false);
-                            endReached = res.chats.isEmpty() || res.chats.size() != count;
-                            chats.addAll(res.chats);
-                        } else {
-                            endReached = true;
-                        }
-                        loading = false;
-                        firstLoaded = true;
-                        if (emptyView != null) {
-                            emptyView.showTextView();
-                        }
-                        if (listViewAdapter != null) {
-                            listViewAdapter.notifyDataSetChanged();
-                        }
-                    }
-                });
+        int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (error == null) {
+                TLRPC.messages_Chats res = (TLRPC.messages_Chats) response;
+                MessagesController.getInstance(currentAccount).putChats(res.chats, false);
+                endReached = res.chats.isEmpty() || res.chats.size() != count;
+                chats.addAll(res.chats);
+            } else {
+                endReached = true;
             }
-        });
-        ConnectionsManager.getInstance().bindRequestToGuid(reqId, classGuid);
+            loading = false;
+            firstLoaded = true;
+            if (emptyView != null) {
+                emptyView.showTextView();
+            }
+            if (listViewAdapter != null) {
+                listViewAdapter.notifyDataSetChanged();
+            }
+        }));
+        ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(reqId, classGuid);
     }
 
     @Override
@@ -254,9 +241,8 @@ public class CommonGroupsActivity extends BaseFragment {
 
     @Override
     public ThemeDescription[] getThemeDescriptions() {
-        ThemeDescription.ThemeDescriptionDelegate сellDelegate = new ThemeDescription.ThemeDescriptionDelegate() {
-            @Override
-            public void didSetColor(int color) {
+        ThemeDescription.ThemeDescriptionDelegate cellDelegate = () -> {
+            if (listView != null) {
                 int count = listView.getChildCount();
                 for (int a = 0; a < count; a++) {
                     View child = listView.getChildAt(a);
@@ -289,14 +275,14 @@ public class CommonGroupsActivity extends BaseFragment {
                 new ThemeDescription(listView, 0, new Class[]{LoadingCell.class}, new String[]{"progressBar"}, null, null, null, Theme.key_progressCircle),
 
                 new ThemeDescription(listView, 0, new Class[]{ProfileSearchCell.class}, Theme.dialogs_namePaint, null, null, Theme.key_chats_name),
-                new ThemeDescription(listView, 0, new Class[]{ProfileSearchCell.class}, null, new Drawable[]{Theme.avatar_photoDrawable, Theme.avatar_broadcastDrawable, Theme.avatar_savedDrawable}, null, Theme.key_avatar_text),
-                new ThemeDescription(null, 0, null, null, null, сellDelegate, Theme.key_avatar_backgroundRed),
-                new ThemeDescription(null, 0, null, null, null, сellDelegate, Theme.key_avatar_backgroundOrange),
-                new ThemeDescription(null, 0, null, null, null, сellDelegate, Theme.key_avatar_backgroundViolet),
-                new ThemeDescription(null, 0, null, null, null, сellDelegate, Theme.key_avatar_backgroundGreen),
-                new ThemeDescription(null, 0, null, null, null, сellDelegate, Theme.key_avatar_backgroundCyan),
-                new ThemeDescription(null, 0, null, null, null, сellDelegate, Theme.key_avatar_backgroundBlue),
-                new ThemeDescription(null, 0, null, null, null, сellDelegate, Theme.key_avatar_backgroundPink),
+                new ThemeDescription(listView, 0, new Class[]{ProfileSearchCell.class}, null, new Drawable[]{Theme.avatar_broadcastDrawable, Theme.avatar_savedDrawable}, null, Theme.key_avatar_text),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundRed),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundOrange),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundViolet),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundGreen),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundCyan),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundBlue),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundPink),
         };
     }
 }

@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -51,6 +51,8 @@ public class SharingLiveLocationCell extends FrameLayout {
     private LocationController.SharingLocationInfo currentInfo;
     private LocationActivity.LiveLocation liveLocation;
     private Location location = new Location("network");
+
+    private int currentAccount;
 
     private Runnable invalidateRunnable = new Runnable() {
         @Override
@@ -119,6 +121,7 @@ public class SharingLiveLocationCell extends FrameLayout {
                 fromId = messageObject.messageOwner.fwd_from.from_id;
             }
         }
+        currentAccount = messageObject.currentAccount;
         String address = null;
         TLRPC.FileLocation photo = null;
         String name;
@@ -139,26 +142,29 @@ public class SharingLiveLocationCell extends FrameLayout {
         } else {
             name = "";
             avatarDrawable = null;
+            Object parentObject = null;
             if (fromId > 0) {
-                TLRPC.User user = MessagesController.getInstance().getUser(fromId);
+                TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(fromId);
                 if (user != null) {
                     if (user.photo != null) {
                         photo = user.photo.photo_small;
                     }
                     avatarDrawable = new AvatarDrawable(user);
                     name = UserObject.getUserName(user);
+                    parentObject = user;
                 }
             } else {
-                TLRPC.Chat chat = MessagesController.getInstance().getChat(-fromId);
+                TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(-fromId);
                 if (chat != null) {
                     if (chat.photo != null) {
                         photo = chat.photo.photo_small;
                     }
                     avatarDrawable = new AvatarDrawable(chat);
                     name = chat.title;
+                    parentObject = chat;
                 }
             }
-            avatarImageView.setImage(photo, null, avatarDrawable);
+            avatarImageView.setImage(photo, null, avatarDrawable, parentObject);
         }
         nameTextView.setText(name);
 
@@ -192,23 +198,26 @@ public class SharingLiveLocationCell extends FrameLayout {
         liveLocation = info;
         int lower_id = info.id;
         TLRPC.FileLocation photo = null;
+        Object parentObject = null;
         if (lower_id > 0) {
-            TLRPC.User user = MessagesController.getInstance().getUser(lower_id);
+            TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(lower_id);
             avatarDrawable.setInfo(user);
             if (user != null) {
                 nameTextView.setText(ContactsController.formatName(user.first_name, user.last_name));
                 if (user.photo != null && user.photo.photo_small != null) {
                     photo = user.photo.photo_small;
                 }
+                parentObject = user;
             }
         } else {
-            TLRPC.Chat chat = MessagesController.getInstance().getChat(-lower_id);
+            TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(-lower_id);
             if (chat != null) {
                 avatarDrawable.setInfo(chat);
                 nameTextView.setText(chat.title);
                 if (chat.photo != null && chat.photo.photo_small != null) {
                     photo = chat.photo.photo_small;
                 }
+                parentObject = chat;
             }
         }
 
@@ -228,33 +237,36 @@ public class SharingLiveLocationCell extends FrameLayout {
             distanceTextView.setText(time);
         }
 
-        avatarImageView.setImage(photo, null, avatarDrawable);
+        avatarImageView.setImage(photo, null, avatarDrawable, parentObject);
     }
 
     public void setDialog(LocationController.SharingLocationInfo info) {
         currentInfo = info;
         int lower_id = (int) info.did;
         TLRPC.FileLocation photo = null;
+        Object parentObject = null;
         if (lower_id > 0) {
-            TLRPC.User user = MessagesController.getInstance().getUser(lower_id);
+            TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(lower_id);
             if (user != null) {
                 avatarDrawable.setInfo(user);
                 nameTextView.setText(ContactsController.formatName(user.first_name, user.last_name));
                 if (user.photo != null && user.photo.photo_small != null) {
                     photo = user.photo.photo_small;
                 }
+                parentObject = user;
             }
         } else {
-            TLRPC.Chat chat = MessagesController.getInstance().getChat(-lower_id);
+            TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(-lower_id);
             if (chat != null) {
                 avatarDrawable.setInfo(chat);
                 nameTextView.setText(chat.title);
                 if (chat.photo != null && chat.photo.photo_small != null) {
                     photo = chat.photo.photo_small;
                 }
+                parentObject = chat;
             }
         }
-        avatarImageView.setImage(photo, null, avatarDrawable);
+        avatarImageView.setImage(photo, null, avatarDrawable,  parentObject);
     }
 
     @Override
@@ -271,7 +283,7 @@ public class SharingLiveLocationCell extends FrameLayout {
             stopTime = liveLocation.object.date + liveLocation.object.media.period;
             period = liveLocation.object.media.period;
         }
-        int currentTime = ConnectionsManager.getInstance().getCurrentTime();
+        int currentTime = ConnectionsManager.getInstance(currentAccount).getCurrentTime();
         if (stopTime < currentTime) {
             return;
         }

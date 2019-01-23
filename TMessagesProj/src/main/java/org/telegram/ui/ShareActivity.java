@@ -1,16 +1,15 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
 
 import android.app.Activity;
 import android.app.Dialog;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
@@ -25,6 +24,7 @@ import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.R;
+import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.SerializedData;
 import org.telegram.tgnet.TLRPC;
@@ -65,25 +65,24 @@ public class ShareActivity extends Activity {
         }
         SerializedData serializedData = new SerializedData(Utilities.hexToBytes(message));
         TLRPC.Message mess = TLRPC.Message.TLdeserialize(serializedData, serializedData.readInt32(false), false);
+        mess.readAttachPath(serializedData, 0);
+        serializedData.cleanup();
         if (mess == null) {
             finish();
             return;
         }
         String link = sharedPreferences.getString(hash + "_link", null);
-        MessageObject messageObject = new MessageObject(mess, null, false);
+        MessageObject messageObject = new MessageObject(UserConfig.selectedAccount, mess, false);
         messageObject.messageOwner.with_my_score = true;
 
         try {
             visibleDialog = ShareAlert.createShareAlert(this, messageObject, null, false, link, false);
             visibleDialog.setCanceledOnTouchOutside(true);
-            visibleDialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
-                @Override
-                public void onDismiss(DialogInterface dialog) {
-                    if (!isFinishing()) {
-                        finish();
-                    }
-                    visibleDialog = null;
+            visibleDialog.setOnDismissListener(dialog -> {
+                if (!isFinishing()) {
+                    finish();
                 }
+                visibleDialog = null;
             });
             visibleDialog.show();
         } catch (Exception e) {

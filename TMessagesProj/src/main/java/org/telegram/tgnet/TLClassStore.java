@@ -1,22 +1,22 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.tgnet;
 
+import android.util.SparseArray;
+
 import org.telegram.messenger.FileLog;
 
-import java.util.HashMap;
-
 public class TLClassStore {
-    private HashMap<Integer, Class> classStore;
+    private SparseArray<Class> classStore;
 
     public TLClassStore() {
-        classStore = new HashMap<>();
+        classStore = new SparseArray<>();
 
         classStore.put(TLRPC.TL_error.constructor, TLRPC.TL_error.class);
         classStore.put(TLRPC.TL_decryptedMessageService.constructor, TLRPC.TL_decryptedMessageService.class);

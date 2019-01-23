@@ -3,7 +3,7 @@
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -52,15 +52,15 @@ public abstract class BaseCell extends ViewGroup {
         setWillNotDraw(false);
     }
 
-    protected void setDrawableBounds(Drawable drawable, int x, int y) {
+    public static void setDrawableBounds(Drawable drawable, int x, int y) {
         setDrawableBounds(drawable, x, y, drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight());
     }
 
-    protected void setDrawableBounds(Drawable drawable, float x, float y) {
+    public static void setDrawableBounds(Drawable drawable, float x, float y) {
         setDrawableBounds(drawable, (int) x, (int) y, drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight());
     }
 
-    protected void setDrawableBounds(Drawable drawable, int x, int y, int w, int h) {
+    public static void setDrawableBounds(Drawable drawable, int x, int y, int w, int h) {
         if (drawable != null) {
             drawable.setBounds(x, y, x + w, y + h);
         }

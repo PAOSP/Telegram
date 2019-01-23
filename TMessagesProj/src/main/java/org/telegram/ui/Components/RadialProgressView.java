@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -12,6 +12,8 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.drawable.Drawable;
+import android.support.annotation.Keep;
 import android.view.View;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
@@ -27,14 +29,15 @@ public class RadialProgressView extends View {
     private boolean risingCircleLength;
     private float currentProgressTime;
     private RectF cicleRect = new RectF();
+    private boolean useSelfAlpha;
 
     private int progressColor;
 
     private DecelerateInterpolator decelerateInterpolator;
     private AccelerateInterpolator accelerateInterpolator;
     private Paint progressPaint;
-    private final float rotationTime = 2000;
-    private final float risingTime = 500;
+    private static final float rotationTime = 2000;
+    private static final float risingTime = 500;
     private int size;
 
     public RadialProgressView(Context context) {
@@ -50,6 +53,24 @@ public class RadialProgressView extends View {
         progressPaint.setStrokeCap(Paint.Cap.ROUND);
         progressPaint.setStrokeWidth(AndroidUtilities.dp(3));
         progressPaint.setColor(progressColor);
+    }
+
+    public void setUseSelfAlpha(boolean value) {
+        useSelfAlpha = value;
+    }
+
+    @Keep
+    @Override
+    public void setAlpha(float alpha) {
+        super.setAlpha(alpha);
+        if (useSelfAlpha) {
+            Drawable background = getBackground();
+            int a = (int) (alpha * 255);
+            if (background != null) {
+                background.setAlpha(a);
+            }
+            progressPaint.setAlpha(a);
+        }
     }
 
     private void updateAnimation() {
@@ -87,6 +108,10 @@ public class RadialProgressView extends View {
     public void setSize(int value) {
         size = value;
         invalidate();
+    }
+
+    public void setStrokeWidth(float value) {
+        progressPaint.setStrokeWidth(AndroidUtilities.dp(value));
     }
 
     public void setProgressColor(int color) {

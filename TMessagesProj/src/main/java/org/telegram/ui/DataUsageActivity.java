@@ -1,15 +1,14 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
 
 import android.content.Context;
-import android.content.DialogInterface;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -17,7 +16,6 @@ import android.widget.FrameLayout;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
 import org.telegram.messenger.StatsController;
 import org.telegram.messenger.support.widget.LinearLayoutManager;
@@ -194,30 +192,22 @@ public class DataUsageActivity extends BaseFragment {
         listView.setLayoutManager(new LinearLayoutManager(context, LinearLayoutManager.VERTICAL, false));
         frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT));
         listView.setAdapter(listAdapter);
-        listView.setOnItemClickListener(new RecyclerListView.OnItemClickListener() {
-            @Override
-            public void onItemClick(View view, final int position) {
-                if (getParentActivity() == null) {
-                    return;
-                }
-                if (position == resetRow) {
-                    AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-                    builder.setTitle(LocaleController.getString("AppName", R.string.AppName));
-                    builder.setMessage(LocaleController.getString("ResetStatisticsAlert", R.string.ResetStatisticsAlert));
-                    builder.setPositiveButton(LocaleController.getString("Reset", R.string.Reset), new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialogInterface, int i) {
-                            StatsController.getInstance().resetStats(currentType);
-                            listAdapter.notifyDataSetChanged();
-                        }
-                    });
-                    builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
-                    showDialog(builder.create());
-                }
+        listView.setOnItemClickListener((view, position) -> {
+            if (getParentActivity() == null) {
+                return;
+            }
+            if (position == resetRow) {
+                AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+                builder.setTitle(LocaleController.getString("AppName", R.string.AppName));
+                builder.setMessage(LocaleController.getString("ResetStatisticsAlert", R.string.ResetStatisticsAlert));
+                builder.setPositiveButton(LocaleController.getString("Reset", R.string.Reset), (dialogInterface, i) -> {
+                    StatsController.getInstance(currentAccount).resetStats(currentType);
+                    listAdapter.notifyDataSetChanged();
+                });
+                builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
+                showDialog(builder.create());
             }
         });
-
-        frameLayout.addView(actionBar);
 
         return fragmentView;
     }
@@ -280,11 +270,11 @@ public class DataUsageActivity extends BaseFragment {
                             type = StatsController.TYPE_TOTAL;
                         }
                         if (position == callsSentRow) {
-                            textCell.setTextAndValue(LocaleController.getString("OutgoingCalls", R.string.OutgoingCalls), String.format("%d", StatsController.getInstance().getSentItemsCount(currentType, type)), true);
+                            textCell.setTextAndValue(LocaleController.getString("OutgoingCalls", R.string.OutgoingCalls), String.format("%d", StatsController.getInstance(currentAccount).getSentItemsCount(currentType, type)), true);
                         } else if (position == callsReceivedRow) {
-                            textCell.setTextAndValue(LocaleController.getString("IncomingCalls", R.string.IncomingCalls), String.format("%d", StatsController.getInstance().getRecivedItemsCount(currentType, type)), true);
+                            textCell.setTextAndValue(LocaleController.getString("IncomingCalls", R.string.IncomingCalls), String.format("%d", StatsController.getInstance(currentAccount).getRecivedItemsCount(currentType, type)), true);
                         } else if (position == callsTotalTimeRow) {
-                            int total = StatsController.getInstance().getCallsTotalTime(currentType);
+                            int total = StatsController.getInstance(currentAccount).getCallsTotalTime(currentType);
                             int hours = total / 3600;
                             total -= hours * 3600;
                             int minutes = total / 60;
@@ -297,13 +287,13 @@ public class DataUsageActivity extends BaseFragment {
                             }
                             textCell.setTextAndValue(LocaleController.getString("CallsTotalTime", R.string.CallsTotalTime), time, false);
                         } else if (position == messagesSentRow || position == photosSentRow || position == videosSentRow || position == audiosSentRow || position == filesSentRow) {
-                            textCell.setTextAndValue(LocaleController.getString("CountSent", R.string.CountSent), String.format("%d", StatsController.getInstance().getSentItemsCount(currentType, type)), true);
+                            textCell.setTextAndValue(LocaleController.getString("CountSent", R.string.CountSent), String.format("%d", StatsController.getInstance(currentAccount).getSentItemsCount(currentType, type)), true);
                         } else if (position == messagesReceivedRow || position == photosReceivedRow || position == videosReceivedRow || position == audiosReceivedRow || position == filesReceivedRow) {
-                            textCell.setTextAndValue(LocaleController.getString("CountReceived", R.string.CountReceived), String.format("%d", StatsController.getInstance().getRecivedItemsCount(currentType, type)), true);
+                            textCell.setTextAndValue(LocaleController.getString("CountReceived", R.string.CountReceived), String.format("%d", StatsController.getInstance(currentAccount).getRecivedItemsCount(currentType, type)), true);
                         } else if (position == messagesBytesSentRow || position == photosBytesSentRow || position == videosBytesSentRow || position == audiosBytesSentRow || position == filesBytesSentRow || position == callsBytesSentRow || position == totalBytesSentRow) {
-                            textCell.setTextAndValue(LocaleController.getString("BytesSent", R.string.BytesSent), AndroidUtilities.formatFileSize(StatsController.getInstance().getSentBytesCount(currentType, type)), true);
+                            textCell.setTextAndValue(LocaleController.getString("BytesSent", R.string.BytesSent), AndroidUtilities.formatFileSize(StatsController.getInstance(currentAccount).getSentBytesCount(currentType, type)), true);
                         } else if (position == messagesBytesReceivedRow || position == photosBytesReceivedRow || position == videosBytesReceivedRow || position == audiosBytesReceivedRow || position == filesBytesReceivedRow || position == callsBytesReceivedRow || position == totalBytesReceivedRow) {
-                            textCell.setTextAndValue(LocaleController.getString("BytesReceived", R.string.BytesReceived), AndroidUtilities.formatFileSize(StatsController.getInstance().getReceivedBytesCount(currentType, type)), position != totalBytesReceivedRow);
+                            textCell.setTextAndValue(LocaleController.getString("BytesReceived", R.string.BytesReceived), AndroidUtilities.formatFileSize(StatsController.getInstance(currentAccount).getReceivedBytesCount(currentType, type)), position != totalBytesReceivedRow);
                         }
                     }
                     break;
@@ -330,7 +320,7 @@ public class DataUsageActivity extends BaseFragment {
                 case 3: {
                     TextInfoPrivacyCell cell = (TextInfoPrivacyCell) holder.itemView;
                     cell.setBackgroundDrawable(Theme.getThemedDrawable(mContext, R.drawable.greydivider_bottom, Theme.key_windowBackgroundGrayShadow));
-                    cell.setText(LocaleController.formatString("NetworkUsageSince", R.string.NetworkUsageSince, LocaleController.getInstance().formatterStats.format(StatsController.getInstance().getResetStatsDate(currentType))));
+                    cell.setText(LocaleController.formatString("NetworkUsageSince", R.string.NetworkUsageSince, LocaleController.getInstance().formatterStats.format(StatsController.getInstance(currentAccount).getResetStatsDate(currentType))));
                     break;
                 }
                 default:

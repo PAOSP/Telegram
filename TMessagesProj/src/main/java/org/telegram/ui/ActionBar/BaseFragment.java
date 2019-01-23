@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.ActionBar;
@@ -12,36 +12,47 @@ import android.animation.AnimatorSet;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.View;
 import android.view.ViewGroup;
 
 import org.telegram.messenger.FileLog;
+import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.ConnectionsManager;
 
 public class BaseFragment {
 
-    private boolean isFinished = false;
-    protected Dialog visibleDialog = null;
+    private boolean isFinished;
+    private boolean finishing;
+    protected Dialog visibleDialog;
+    protected int currentAccount = UserConfig.selectedAccount;
 
     protected View fragmentView;
     protected ActionBarLayout parentLayout;
     protected ActionBar actionBar;
-    protected int classGuid = 0;
+    protected boolean inPreviewMode;
+    protected int classGuid;
     protected Bundle arguments;
     protected boolean swipeBackEnabled = true;
     protected boolean hasOwnBackground = false;
 
     public BaseFragment() {
-        classGuid = ConnectionsManager.getInstance().generateClassGuid();
+        classGuid = ConnectionsManager.generateClassGuid();
     }
 
     public BaseFragment(Bundle args) {
         arguments = args;
-        classGuid = ConnectionsManager.getInstance().generateClassGuid();
+        classGuid = ConnectionsManager.generateClassGuid();
+    }
+
+    public void setCurrentAccount(int account) {
+        if (fragmentView != null) {
+            throw new IllegalStateException("trying to set current account when fragment UI already created");
+        }
+        currentAccount = account;
     }
 
     public ActionBar getActionBar() {
@@ -58,6 +69,21 @@ public class BaseFragment {
 
     public Bundle getArguments() {
         return arguments;
+    }
+
+    public int getCurrentAccount() {
+        return currentAccount;
+    }
+
+    protected void setInPreviewMode(boolean value) {
+        inPreviewMode = value;
+        if (actionBar != null) {
+            if (inPreviewMode) {
+                actionBar.setOccupyStatusBar(false);
+            } else {
+                actionBar.setOccupyStatusBar(Build.VERSION.SDK_INT >= 21);
+            }
+        }
     }
 
     protected void clearViews() {
@@ -138,7 +164,18 @@ public class BaseFragment {
         actionBar.setItemsBackgroundColor(Theme.getColor(Theme.key_actionBarActionModeDefaultSelector), true);
         actionBar.setItemsColor(Theme.getColor(Theme.key_actionBarDefaultIcon), false);
         actionBar.setItemsColor(Theme.getColor(Theme.key_actionBarActionModeDefaultIcon), true);
+        if (inPreviewMode) {
+            actionBar.setOccupyStatusBar(false);
+        }
         return actionBar;
+    }
+
+    public void movePreviewFragment(float dy) {
+        parentLayout.movePreviewFragment(dy);
+    }
+
+    public void finishPreviewFragment() {
+        parentLayout.finishPreviewFragment();
     }
 
     public void finishFragment() {
@@ -149,6 +186,7 @@ public class BaseFragment {
         if (isFinished || parentLayout == null) {
             return;
         }
+        finishing = true;
         parentLayout.closeLastFragment(animated);
     }
 
@@ -159,12 +197,16 @@ public class BaseFragment {
         parentLayout.removeFragmentFromStack(this);
     }
 
+    protected boolean isFinishing() {
+        return finishing;
+    }
+
     public boolean onFragmentCreate() {
         return true;
     }
 
     public void onFragmentDestroy() {
-        ConnectionsManager.getInstance().cancelRequestsForGuid(classGuid);
+        ConnectionsManager.getInstance(currentAccount).cancelRequestsForGuid(classGuid);
         isFinished = true;
         if (actionBar != null) {
             actionBar.setEnabled(false);
@@ -224,6 +266,10 @@ public class BaseFragment {
 
     }
 
+    public boolean presentFragmentAsPreview(BaseFragment fragment) {
+        return parentLayout != null && parentLayout.presentFragmentAsPreview(fragment);
+    }
+
     public boolean presentFragment(BaseFragment fragment) {
         return parentLayout != null && parentLayout.presentFragment(fragment);
     }
@@ -233,7 +279,7 @@ public class BaseFragment {
     }
 
     public boolean presentFragment(BaseFragment fragment, boolean removeLast, boolean forceWithoutAnimation) {
-        return parentLayout != null && parentLayout.presentFragment(fragment, removeLast, forceWithoutAnimation, true);
+        return parentLayout != null && parentLayout.presentFragment(fragment, removeLast, forceWithoutAnimation, true, false);
     }
 
     public Activity getParentActivity() {
@@ -291,6 +337,10 @@ public class BaseFragment {
 
     }
 
+    protected void onBecomeFullyHidden() {
+
+    }
+
     protected AnimatorSet onCustomTransitionAnimation(boolean isOpen, final Runnable callback) {
         return null;
     }
@@ -322,15 +372,12 @@ public class BaseFragment {
         try {
             visibleDialog = dialog;
             visibleDialog.setCanceledOnTouchOutside(true);
-            visibleDialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
-                @Override
-                public void onDismiss(DialogInterface dialog) {
-                    if (onDismissListener != null) {
-                        onDismissListener.onDismiss(dialog);
-                    }
-                    onDialogDismiss(visibleDialog);
-                    visibleDialog = null;
+            visibleDialog.setOnDismissListener(dialog1 -> {
+                if (onDismissListener != null) {
+                    onDismissListener.onDismiss(dialog1);
                 }
+                onDialogDismiss(visibleDialog);
+                visibleDialog = null;
             });
             visibleDialog.show();
             return visibleDialog;
@@ -357,6 +404,6 @@ public class BaseFragment {
     }
 
     public ThemeDescription[] getThemeDescriptions() {
-        return null;
+        return new ThemeDescription[0];
     }
 }

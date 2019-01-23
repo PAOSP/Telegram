@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -29,6 +29,11 @@ public class SizeNotifierFrameLayout extends FrameLayout {
     private int keyboardHeight;
     private int bottomClip;
     private SizeNotifierFrameLayoutDelegate delegate;
+    private boolean occupyStatusBar = true;
+    private WallpaperParallaxEffect parallaxEffect;
+    private float translationX;
+    private float translationY;
+    private float parallaxScale = 1.0f;
 
     public interface SizeNotifierFrameLayoutDelegate {
         void onSizeChanged(int keyboardHeight, boolean isWidthGreater);
@@ -39,8 +44,27 @@ public class SizeNotifierFrameLayout extends FrameLayout {
         setWillNotDraw(false);
     }
 
-    public void setBackgroundImage(Drawable bitmap) {
+    public void setBackgroundImage(Drawable bitmap, boolean motion) {
         backgroundDrawable = bitmap;
+        if (motion) {
+            if (parallaxEffect == null) {
+                parallaxEffect = new WallpaperParallaxEffect(getContext());
+                parallaxEffect.setCallback((offsetX, offsetY) -> {
+                    translationX = offsetX;
+                    translationY = offsetY;
+                    invalidate();
+                });
+                if (getMeasuredWidth() != 0 && getMeasuredHeight() != 0) {
+                    parallaxScale = parallaxEffect.getScale(getMeasuredWidth(), getMeasuredHeight());
+                }
+            }
+        } else if (parallaxEffect != null) {
+            parallaxEffect.setEnabled(false);
+            parallaxEffect = null;
+            parallaxScale = 0;
+            translationX = 0;
+            translationY = 0;
+        }
         invalidate();
     }
 
@@ -50,6 +74,22 @@ public class SizeNotifierFrameLayout extends FrameLayout {
 
     public void setDelegate(SizeNotifierFrameLayoutDelegate delegate) {
         this.delegate = delegate;
+    }
+
+    public void setOccupyStatusBar(boolean value) {
+        occupyStatusBar = value;
+    }
+
+    public void onPause() {
+        if (parallaxEffect != null) {
+            parallaxEffect.setEnabled(false);
+        }
+    }
+
+    public void onResume() {
+        if (parallaxEffect != null) {
+            parallaxEffect.setEnabled(true);
+        }
     }
 
     @Override
@@ -67,14 +107,14 @@ public class SizeNotifierFrameLayout extends FrameLayout {
 
     public void notifyHeightChanged() {
         if (delegate != null) {
+            if (parallaxEffect != null) {
+                parallaxScale = parallaxEffect.getScale(getMeasuredWidth(), getMeasuredHeight());
+            }
             keyboardHeight = getKeyboardHeight();
             final boolean isWidthGreater = AndroidUtilities.displaySize.x > AndroidUtilities.displaySize.y;
-            post(new Runnable() {
-                @Override
-                public void run() {
-                    if (delegate != null) {
-                        delegate.onSizeChanged(keyboardHeight, isWidthGreater);
-                    }
+            post(() -> {
+                if (delegate != null) {
+                    delegate.onSizeChanged(keyboardHeight, isWidthGreater);
                 }
             });
         }
@@ -107,15 +147,15 @@ public class SizeNotifierFrameLayout extends FrameLayout {
                     backgroundDrawable.draw(canvas);
                     canvas.restore();
                 } else {
-                    int actionBarHeight = (isActionBarVisible() ? ActionBar.getCurrentActionBarHeight() : 0) + (Build.VERSION.SDK_INT >= 21 ? AndroidUtilities.statusBarHeight : 0);
+                    int actionBarHeight = (isActionBarVisible() ? ActionBar.getCurrentActionBarHeight() : 0) + (Build.VERSION.SDK_INT >= 21 && occupyStatusBar ? AndroidUtilities.statusBarHeight : 0);
                     int viewHeight = getMeasuredHeight() - actionBarHeight;
                     float scaleX = (float) getMeasuredWidth() / (float) backgroundDrawable.getIntrinsicWidth();
                     float scaleY = (float) (viewHeight + keyboardHeight) / (float) backgroundDrawable.getIntrinsicHeight();
                     float scale = scaleX < scaleY ? scaleY : scaleX;
-                    int width = (int) Math.ceil(backgroundDrawable.getIntrinsicWidth() * scale);
-                    int height = (int) Math.ceil(backgroundDrawable.getIntrinsicHeight() * scale);
-                    int x = (getMeasuredWidth() - width) / 2;
-                    int y = (viewHeight - height + keyboardHeight) / 2 + actionBarHeight;
+                    int width = (int) Math.ceil(backgroundDrawable.getIntrinsicWidth() * scale * parallaxScale);
+                    int height = (int) Math.ceil(backgroundDrawable.getIntrinsicHeight() * scale * parallaxScale);
+                    int x = (getMeasuredWidth() - width) / 2 + (int) translationX;
+                    int y = (viewHeight - height + keyboardHeight) / 2 + actionBarHeight + (int) translationY;
                     canvas.save();
                     canvas.clipRect(0, actionBarHeight, width, getMeasuredHeight() - bottomClip);
                     backgroundDrawable.setBounds(x, y, x + width, y + height);

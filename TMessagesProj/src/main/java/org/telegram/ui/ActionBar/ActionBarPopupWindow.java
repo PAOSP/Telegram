@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 //Thanks to https://github.com/JakeWharton/ActionBarSherlock/
@@ -19,6 +19,7 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
+import android.support.annotation.Keep;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -55,11 +56,8 @@ public class ActionBarPopupWindow extends PopupWindow {
         superListenerField = f;
     }
 
-    private static final ViewTreeObserver.OnScrollChangedListener NOP = new ViewTreeObserver.OnScrollChangedListener() {
-        @Override
-        public void onScrollChanged() {
-            /* do nothing */
-        }
+    private static final ViewTreeObserver.OnScrollChangedListener NOP = () -> {
+        /* do nothing */
     };
 
     private ViewTreeObserver.OnScrollChangedListener mSuperScrollListener;
@@ -120,19 +118,23 @@ public class ActionBarPopupWindow extends PopupWindow {
             mOnDispatchKeyEventListener = listener;
         }
 
+        @Keep
         public void setBackAlpha(int value) {
             backAlpha = value;
         }
 
+        @Keep
         public int getBackAlpha() {
             return backAlpha;
         }
 
+        @Keep
         public void setBackScaleX(float value) {
             backScaleX = value;
             invalidate();
         }
 
+        @Keep
         public void setBackScaleY(float value) {
             backScaleY = value;
             if (animationEnabled) {

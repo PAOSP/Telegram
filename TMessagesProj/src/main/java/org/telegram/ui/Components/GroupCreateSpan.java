@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -47,7 +47,7 @@ public class GroupCreateSpan extends View {
     private float progress;
     private boolean deleting;
     private long lastUpdateTime;
-    private int[] colors = new int[6];
+    private int[] colors = new int[8];
 
     public GroupCreateSpan(Context context, TLRPC.User user) {
         this(context, user, null);
@@ -107,7 +107,7 @@ public class GroupCreateSpan extends View {
         if (user != null && user.photo != null) {
             photo = user.photo.photo_small;
         }
-        imageReceiver.setImage(photo, null, "50_50", avatarDrawable, null, null, 0, null, 1);
+        imageReceiver.setImage(photo, null, "50_50", avatarDrawable, null, null, 0, null, user, 1);
         updateColors();
     }
 
@@ -115,14 +115,17 @@ public class GroupCreateSpan extends View {
         int color = Theme.getColor(Theme.key_avatar_backgroundGroupCreateSpanBlue);
         int back = Theme.getColor(Theme.key_groupcreate_spanBackground);
         int text = Theme.getColor(Theme.key_groupcreate_spanText);
+        int delete = Theme.getColor(Theme.key_groupcreate_spanDelete);
         colors[0] = Color.red(back);
         colors[1] = Color.red(color);
         colors[2] = Color.green(back);
         colors[3] = Color.green(color);
         colors[4] = Color.blue(back);
         colors[5] = Color.blue(color);
+        colors[6] = Color.alpha(back);
+        colors[7] = Color.alpha(color);
         textPaint.setColor(text);
-        deleteDrawable.setColorFilter(new PorterDuffColorFilter(text, PorterDuff.Mode.MULTIPLY));
+        deleteDrawable.setColorFilter(new PorterDuffColorFilter(delete, PorterDuff.Mode.MULTIPLY));
         backPaint.setColor(back);
         avatarDrawable.setColor(AvatarDrawable.getColorForId(5));
     }
@@ -189,12 +192,14 @@ public class GroupCreateSpan extends View {
         }
         canvas.save();
         rect.set(0, 0, getMeasuredWidth(), AndroidUtilities.dp(32));
-        backPaint.setColor(Color.argb(255, colors[0] + (int) ((colors[1] - colors[0]) * progress), colors[2] + (int) ((colors[3] - colors[2]) * progress), colors[4] + (int) ((colors[5] - colors[4]) * progress)));
+        backPaint.setColor(Color.argb(colors[6] + (int) ((colors[7] - colors[6]) * progress), colors[0] + (int) ((colors[1] - colors[0]) * progress), colors[2] + (int) ((colors[3] - colors[2]) * progress), colors[4] + (int) ((colors[5] - colors[4]) * progress)));
         canvas.drawRoundRect(rect, AndroidUtilities.dp(16), AndroidUtilities.dp(16), backPaint);
         imageReceiver.draw(canvas);
         if (progress != 0) {
-            backPaint.setColor(avatarDrawable.getColor());
-            backPaint.setAlpha((int) (255 * progress));
+            int color = avatarDrawable.getColor();
+            float alpha = Color.alpha(color) / 255.0f;
+            backPaint.setColor(color);
+            backPaint.setAlpha((int) (255 * progress * alpha));
             canvas.drawCircle(AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16), backPaint);
             canvas.save();
             canvas.rotate(45 * (1.0f - progress), AndroidUtilities.dp(16), AndroidUtilities.dp(16));

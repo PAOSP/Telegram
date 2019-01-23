@@ -1,35 +1,31 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
 
-import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
-import android.view.KeyEvent;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.LinearLayout;
-import android.widget.TextView;
+import android.widget.Toast;
 
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
+import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.ConnectionsManager;
-import org.telegram.tgnet.RequestDelegate;
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
@@ -45,6 +41,7 @@ public class ReportOtherActivity extends BaseFragment {
     private EditTextBoldCursor firstNameField;
     private View headerLabelView;
     private long dialog_id;
+    private int message_id;
     private View doneButton;
 
     private final static int done_button = 1;
@@ -52,6 +49,7 @@ public class ReportOtherActivity extends BaseFragment {
     public ReportOtherActivity(Bundle args) {
         super(args);
         dialog_id = getArguments().getLong("dialog_id", 0);
+        message_id = getArguments().getInt("message_id", 0);
     }
 
     @Override
@@ -66,16 +64,30 @@ public class ReportOtherActivity extends BaseFragment {
                     finishFragment();
                 } else if (id == done_button) {
                     if (firstNameField.getText().length() != 0) {
-                        TLRPC.TL_account_reportPeer req = new TLRPC.TL_account_reportPeer();
-                        req.peer = MessagesController.getInputPeer((int) dialog_id);
-                        req.reason = new TLRPC.TL_inputReportReasonOther();
-                        req.reason.text = firstNameField.getText().toString();
-                        ConnectionsManager.getInstance().sendRequest(req, new RequestDelegate() {
-                            @Override
-                            public void run(TLObject response, TLRPC.TL_error error) {
+                        TLObject req;
+                        TLRPC.InputPeer peer = MessagesController.getInstance(UserConfig.selectedAccount).getInputPeer((int) dialog_id);
+                        if (message_id != 0) {
+                            TLRPC.TL_messages_report request = new TLRPC.TL_messages_report();
+                            request.peer = peer;
+                            request.id.add(message_id);
+                            TLRPC.TL_inputReportReasonOther reportReasonOther = new TLRPC.TL_inputReportReasonOther();
+                            reportReasonOther.text = firstNameField.getText().toString();
+                            request.reason = reportReasonOther;
+                            req = request;
+                        } else {
+                            TLRPC.TL_account_reportPeer request = new TLRPC.TL_account_reportPeer();
+                            request.peer = MessagesController.getInstance(currentAccount).getInputPeer((int) dialog_id);
+                            TLRPC.TL_inputReportReasonOther reportReasonOther = new TLRPC.TL_inputReportReasonOther();
+                            reportReasonOther.text = firstNameField.getText().toString();
+                            request.reason = reportReasonOther;
+                            req = request;
+                        }
+                        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
 
-                            }
                         });
+                        if (getParentActivity() != null) {
+                            Toast.makeText(getParentActivity(), LocaleController.getString("ReportChatSent", R.string.ReportChatSent), Toast.LENGTH_SHORT).show();
+                        }
                         finishFragment();
                     }
                 }
@@ -89,12 +101,7 @@ public class ReportOtherActivity extends BaseFragment {
         fragmentView = linearLayout;
         fragmentView.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         ((LinearLayout) fragmentView).setOrientation(LinearLayout.VERTICAL);
-        fragmentView.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                return true;
-            }
-        });
+        fragmentView.setOnTouchListener((v, event) -> true);
 
         firstNameField = new EditTextBoldCursor(context);
         firstNameField.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
@@ -110,15 +117,12 @@ public class ReportOtherActivity extends BaseFragment {
         firstNameField.setCursorColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
         firstNameField.setCursorSize(AndroidUtilities.dp(20));
         firstNameField.setCursorWidth(1.5f);
-        firstNameField.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-            @Override
-            public boolean onEditorAction(TextView textView, int i, KeyEvent keyEvent) {
-                if (i == EditorInfo.IME_ACTION_DONE && doneButton != null) {
-                    doneButton.performClick();
-                    return true;
-                }
-                return false;
+        firstNameField.setOnEditorActionListener((textView, i, keyEvent) -> {
+            if (i == EditorInfo.IME_ACTION_DONE && doneButton != null) {
+                doneButton.performClick();
+                return true;
             }
+            return false;
         });
 
         linearLayout.addView(firstNameField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 36, 24, 24, 24, 0));
@@ -131,7 +135,7 @@ public class ReportOtherActivity extends BaseFragment {
     @Override
     public void onResume() {
         super.onResume();
-        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
         boolean animations = preferences.getBoolean("view_animations", true);
         if (!animations) {
             firstNameField.requestFocus();
@@ -142,13 +146,10 @@ public class ReportOtherActivity extends BaseFragment {
     @Override
     public void onTransitionAnimationEnd(boolean isOpen, boolean backward) {
         if (isOpen) {
-            AndroidUtilities.runOnUIThread(new Runnable() {
-                @Override
-                public void run() {
-                    if (firstNameField != null) {
-                        firstNameField.requestFocus();
-                        AndroidUtilities.showKeyboard(firstNameField);
-                    }
+            AndroidUtilities.runOnUIThread(() -> {
+                if (firstNameField != null) {
+                    firstNameField.requestFocus();
+                    AndroidUtilities.showKeyboard(firstNameField);
                 }
             }, 100);
         }

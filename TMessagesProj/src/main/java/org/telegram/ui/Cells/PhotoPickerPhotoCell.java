@@ -3,7 +3,7 @@
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -13,6 +13,7 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.content.Context;
+import android.graphics.drawable.Drawable;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.animation.DecelerateInterpolator;
@@ -21,7 +22,11 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.FileLoader;
+import org.telegram.messenger.MediaController;
+import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.R;
+import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.CheckBox;
 import org.telegram.ui.Components.LayoutHelper;
@@ -100,6 +105,24 @@ public class PhotoPickerPhotoCell extends FrameLayout {
 
     public void setNum(int num) {
         checkBox.setNum(num);
+    }
+
+    public void setImage(MediaController.SearchImage searchImage) {
+        Drawable thumb = getResources().getDrawable(R.drawable.nophotos);
+        if (searchImage.thumbPhotoSize != null) {
+            photoImage.setImage(searchImage.thumbPhotoSize, null, thumb, searchImage);
+        } else if (searchImage.photoSize != null) {
+            photoImage.setImage(searchImage.photoSize, "80_80", thumb, searchImage);
+        } else if (searchImage.thumbPath != null) {
+            photoImage.setImage(searchImage.thumbPath, null, thumb);
+        } else if (searchImage.thumbUrl != null && searchImage.thumbUrl.length() > 0) {
+            photoImage.setImage(searchImage.thumbUrl, null, thumb);
+        } else if (searchImage.document != null && MessageObject.isDocumentHasThumb(searchImage.document)) {
+            TLRPC.PhotoSize photoSize = FileLoader.getClosestPhotoSizeWithSize(searchImage.document.thumbs, 90);
+            photoImage.setImage(photoSize, null, thumb, searchImage);
+        } else {
+            photoImage.setImageDrawable(thumb);
+        }
     }
 
     public void setChecked(final int num, final boolean checked, final boolean animated) {

@@ -3,7 +3,7 @@
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Adapters;
@@ -12,6 +12,7 @@ import android.content.Context;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
+import android.util.SparseArray;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -40,11 +41,11 @@ import java.util.TimerTask;
 public class SearchAdapter extends RecyclerListView.SelectionAdapter {
 
     private Context mContext;
-    private HashMap<Integer, TLRPC.User> ignoreUsers;
-    private ArrayList<TLRPC.User> searchResult = new ArrayList<>();
+    private SparseArray<TLRPC.User> ignoreUsers;
+    private ArrayList<TLObject> searchResult = new ArrayList<>();
     private ArrayList<CharSequence> searchResultNames = new ArrayList<>();
     private SearchAdapterHelper searchAdapterHelper;
-    private HashMap<Integer, ?> checkedMap;
+    private SparseArray<?> checkedMap;
     private Timer searchTimer;
     private boolean allowUsernameSearch;
     private boolean useUserCell;
@@ -53,7 +54,7 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
     private boolean allowBots;
     private int channelId;
 
-    public SearchAdapter(Context context, HashMap<Integer, TLRPC.User> arg1, boolean usernameSearch, boolean mutual, boolean chats, boolean bots, int searchChannelId) {
+    public SearchAdapter(Context context, SparseArray<TLRPC.User> arg1, boolean usernameSearch, boolean mutual, boolean chats, boolean bots, int searchChannelId) {
         mContext = context;
         ignoreUsers = arg1;
         onlyMutual = mutual;
@@ -61,7 +62,7 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
         allowChats = chats;
         allowBots = bots;
         channelId = searchChannelId;
-        searchAdapterHelper = new SearchAdapterHelper();
+        searchAdapterHelper = new SearchAdapterHelper(true);
         searchAdapterHelper.setDelegate(new SearchAdapterHelper.SearchAdapterHelperDelegate() {
             @Override
             public void onDataSetChanged() {
@@ -72,10 +73,15 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
             public void onSetHashtags(ArrayList<SearchAdapterHelper.HashtagObject> arrayList, HashMap<String, SearchAdapterHelper.HashtagObject> hashMap) {
 
             }
+
+            @Override
+            public SparseArray<TLRPC.User> getExcludeUsers() {
+                return ignoreUsers;
+            }
         });
     }
 
-    public void setCheckedMap(HashMap<Integer, ?> map) {
+    public void setCheckedMap(SparseArray<?> map) {
         checkedMap = map;
     }
 
@@ -95,7 +101,7 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
             searchResult.clear();
             searchResultNames.clear();
             if (allowUsernameSearch) {
-                searchAdapterHelper.queryServerSearch(null, true, allowChats, allowBots, true, channelId, false);
+                searchAdapterHelper.queryServerSearch(null, true, allowChats, allowBots, true, channelId, 0);
             }
             notifyDataSetChanged();
         } else {
@@ -116,89 +122,81 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
     }
 
     private void processSearch(final String query) {
-        AndroidUtilities.runOnUIThread(new Runnable() {
-            @Override
-            public void run() {
-                if (allowUsernameSearch) {
-                    searchAdapterHelper.queryServerSearch(query, true, allowChats, allowBots, true, channelId, false);
-                }
-                final ArrayList<TLRPC.TL_contact> contactsCopy = new ArrayList<>();
-                contactsCopy.addAll(ContactsController.getInstance().contacts);
-                Utilities.searchQueue.postRunnable(new Runnable() {
-                    @Override
-                    public void run() {
-                        String search1 = query.trim().toLowerCase();
-                        if (search1.length() == 0) {
-                            updateSearchResults(new ArrayList<TLRPC.User>(), new ArrayList<CharSequence>());
-                            return;
-                        }
-                        String search2 = LocaleController.getInstance().getTranslitString(search1);
-                        if (search1.equals(search2) || search2.length() == 0) {
-                            search2 = null;
-                        }
-                        String search[] = new String[1 + (search2 != null ? 1 : 0)];
-                        search[0] = search1;
-                        if (search2 != null) {
-                            search[1] = search2;
-                        }
-
-                        ArrayList<TLRPC.User> resultArray = new ArrayList<>();
-                        ArrayList<CharSequence> resultArrayNames = new ArrayList<>();
-
-                        for (int a = 0; a < contactsCopy.size(); a++) {
-                            TLRPC.TL_contact contact = contactsCopy.get(a);
-                            TLRPC.User user = MessagesController.getInstance().getUser(contact.user_id);
-                            if (user.id == UserConfig.getClientUserId() || onlyMutual && !user.mutual_contact) {
-                                continue;
-                            }
-
-                            String name = ContactsController.formatName(user.first_name, user.last_name).toLowerCase();
-                            String tName = LocaleController.getInstance().getTranslitString(name);
-                            if (name.equals(tName)) {
-                                tName = null;
-                            }
-
-                            int found = 0;
-                            for (String q : search) {
-                                if (name.startsWith(q) || name.contains(" " + q) || tName != null && (tName.startsWith(q) || tName.contains(" " + q))) {
-                                    found = 1;
-                                } else if (user.username != null && user.username.startsWith(q)) {
-                                    found = 2;
-                                }
-
-                                if (found != 0) {
-                                    if (found == 1) {
-                                        resultArrayNames.add(AndroidUtilities.generateSearchName(user.first_name, user.last_name, q));
-                                    } else {
-                                        resultArrayNames.add(AndroidUtilities.generateSearchName("@" + user.username, null, "@" + q));
-                                    }
-                                    resultArray.add(user);
-                                    break;
-                                }
-                            }
-                        }
-
-                        updateSearchResults(resultArray, resultArrayNames);
-                    }
-                });
+        AndroidUtilities.runOnUIThread(() -> {
+            if (allowUsernameSearch) {
+                searchAdapterHelper.queryServerSearch(query, true, allowChats, allowBots, true, channelId, -1);
             }
+            final int currentAccount = UserConfig.selectedAccount;
+            final ArrayList<TLRPC.TL_contact> contactsCopy = new ArrayList<>(ContactsController.getInstance(currentAccount).contacts);
+            Utilities.searchQueue.postRunnable(() -> {
+                String search1 = query.trim().toLowerCase();
+                if (search1.length() == 0) {
+                    updateSearchResults(new ArrayList<>(), new ArrayList<>());
+                    return;
+                }
+                String search2 = LocaleController.getInstance().getTranslitString(search1);
+                if (search1.equals(search2) || search2.length() == 0) {
+                    search2 = null;
+                }
+                String search[] = new String[1 + (search2 != null ? 1 : 0)];
+                search[0] = search1;
+                if (search2 != null) {
+                    search[1] = search2;
+                }
+
+                ArrayList<TLObject> resultArray = new ArrayList<>();
+                ArrayList<CharSequence> resultArrayNames = new ArrayList<>();
+
+                for (int a = 0; a < contactsCopy.size(); a++) {
+                    TLRPC.TL_contact contact = contactsCopy.get(a);
+                    TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(contact.user_id);
+                    if (user.id == UserConfig.getInstance(currentAccount).getClientUserId() || onlyMutual && !user.mutual_contact || ignoreUsers != null && ignoreUsers.indexOfKey(contact.user_id) >= 0) {
+                        continue;
+                    }
+
+                    String name = ContactsController.formatName(user.first_name, user.last_name).toLowerCase();
+                    String tName = LocaleController.getInstance().getTranslitString(name);
+                    if (name.equals(tName)) {
+                        tName = null;
+                    }
+
+                    int found = 0;
+                    for (String q : search) {
+                        if (name.startsWith(q) || name.contains(" " + q) || tName != null && (tName.startsWith(q) || tName.contains(" " + q))) {
+                            found = 1;
+                        } else if (user.username != null && user.username.startsWith(q)) {
+                            found = 2;
+                        }
+
+                        if (found != 0) {
+                            if (found == 1) {
+                                resultArrayNames.add(AndroidUtilities.generateSearchName(user.first_name, user.last_name, q));
+                            } else {
+                                resultArrayNames.add(AndroidUtilities.generateSearchName("@" + user.username, null, "@" + q));
+                            }
+                            resultArray.add(user);
+                            break;
+                        }
+                    }
+                }
+
+                updateSearchResults(resultArray, resultArrayNames);
+            });
         });
     }
 
-    private void updateSearchResults(final ArrayList<TLRPC.User> users, final ArrayList<CharSequence> names) {
-        AndroidUtilities.runOnUIThread(new Runnable() {
-            @Override
-            public void run() {
-                searchResult = users;
-                searchResultNames = names;
-                notifyDataSetChanged();
-            }
+    private void updateSearchResults(final ArrayList<TLObject> users, final ArrayList<CharSequence> names) {
+        AndroidUtilities.runOnUIThread(() -> {
+            searchResult = users;
+            searchResultNames = names;
+            searchAdapterHelper.mergeResults(users);
+            notifyDataSetChanged();
         });
     }
 
     @Override
     public boolean isEnabled(RecyclerView.ViewHolder holder) {
-        return holder.getAdapterPosition() != searchResult.size();
+        return holder.getItemViewType() == 0;
     }
 
     @Override
@@ -287,8 +285,20 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
                         foundUserName = foundUserName.substring(1);
                     }
                     try {
-                        username = new SpannableStringBuilder(un);
-                        ((SpannableStringBuilder) username).setSpan(new ForegroundColorSpan(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4)), 0, foundUserName.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        int index;
+                        SpannableStringBuilder spannableStringBuilder = new SpannableStringBuilder();
+                        spannableStringBuilder.append("@");
+                        spannableStringBuilder.append(un);
+                        if ((index = un.toLowerCase().indexOf(foundUserName)) != -1) {
+                            int len = foundUserName.length();
+                            if (index == 0) {
+                                len++;
+                            } else {
+                                index++;
+                            }
+                            spannableStringBuilder.setSpan(new ForegroundColorSpan(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4)), index, index + len, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        }
+                        username = spannableStringBuilder;
                     } catch (Exception e) {
                         username = un;
                         FileLog.e(e);
@@ -299,7 +309,7 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
                     UserCell userCell = (UserCell) holder.itemView;
                     userCell.setData(object, name, username, 0);
                     if (checkedMap != null) {
-                        userCell.setChecked(checkedMap.containsKey(id), false);
+                        userCell.setChecked(checkedMap.indexOfKey(id) >= 0, false);
                     }
                 } else {
                     ProfileSearchCell profileSearchCell = (ProfileSearchCell) holder.itemView;

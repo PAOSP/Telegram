@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
@@ -88,14 +88,14 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
     @Override
     public boolean onFragmentCreate() {
         chat_id = getArguments().getInt("chat_id");
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.emojiDidLoaded);
+        NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.emojiDidLoad);
         return super.onFragmentCreate();
     }
 
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.emojiDidLoaded);
+        NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.emojiDidLoad);
     }
 
     @Override
@@ -116,12 +116,7 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
         fragmentView = new FrameLayout(context);
         FrameLayout parentFrameLayout = (FrameLayout) fragmentView;
         fragmentView.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundGray));
-        fragmentView.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                return true;
-            }
-        });
+        fragmentView.setOnTouchListener((v, event) -> true);
 
         linearLayout = new LinearLayout(context);
         linearLayout.setOrientation(LinearLayout.VERTICAL);
@@ -186,12 +181,12 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
         emojiTextView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 32);
         container.addView(emojiTextView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
 
-        TLRPC.EncryptedChat encryptedChat = MessagesController.getInstance().getEncryptedChat(chat_id);
+        TLRPC.EncryptedChat encryptedChat = MessagesController.getInstance(currentAccount).getEncryptedChat(chat_id);
         if (encryptedChat != null) {
             IdenticonDrawable drawable = new IdenticonDrawable();
             identiconView.setImageDrawable(drawable);
             drawable.setEncryptedChat(encryptedChat);
-            TLRPC.User user = MessagesController.getInstance().getUser(encryptedChat.user_id);
+            TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(encryptedChat.user_id);
             SpannableStringBuilder hash = new SpannableStringBuilder();
             StringBuilder emojis = new StringBuilder();
             if (encryptedChat.key_hash.length > 16) {
@@ -246,8 +241,8 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
     }
 
     @Override
-    public void didReceivedNotification(int id, Object... args) {
-        if (id == NotificationCenter.emojiDidLoaded) {
+    public void didReceivedNotification(int id, int account, Object... args) {
+        if (id == NotificationCenter.emojiDidLoad) {
             if (emojiTextView != null) {
                 emojiTextView.invalidate();
             }

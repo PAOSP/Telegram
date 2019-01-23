@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x
+ * This is the source code of Telegram for Android v. 5.x.x
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -18,8 +18,10 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.DataQuery;
 import org.telegram.messenger.Emoji;
-import org.telegram.messenger.query.StickersQuery;
+import org.telegram.messenger.FileLoader;
+import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.LayoutHelper;
@@ -28,6 +30,7 @@ public class StickerEmojiCell extends FrameLayout {
 
     private BackupImageView imageView;
     private TLRPC.Document sticker;
+    private Object parentObject;
     private TextView emojiTextView;
     private float alpha = 1;
     private boolean changingAlpha;
@@ -37,6 +40,7 @@ public class StickerEmojiCell extends FrameLayout {
     private long time;
     private boolean recent;
     private static AccelerateInterpolator interpolator = new AccelerateInterpolator(0.5f);
+    private int currentAccount = UserConfig.selectedAccount;
 
     public StickerEmojiCell(Context context) {
         super(context);
@@ -54,6 +58,10 @@ public class StickerEmojiCell extends FrameLayout {
         return sticker;
     }
 
+    public Object getParentObject() {
+        return parentObject;
+    }
+
     public boolean isRecent() {
         return recent;
     }
@@ -62,11 +70,13 @@ public class StickerEmojiCell extends FrameLayout {
         recent = value;
     }
 
-    public void setSticker(TLRPC.Document document, boolean showEmoji) {
+    public void setSticker(TLRPC.Document document, Object parent, boolean showEmoji) {
         if (document != null) {
             sticker = document;
-            if (document.thumb != null) {
-                imageView.setImage(document.thumb.location, null, "webp", null);
+            parentObject = parent;
+            TLRPC.PhotoSize thumb = FileLoader.getClosestPhotoSizeWithSize(document.thumbs, 90);
+            if (thumb != null) {
+                imageView.setImage(thumb, null, "webp", null, parentObject);
             }
 
             if (showEmoji) {
@@ -82,7 +92,7 @@ public class StickerEmojiCell extends FrameLayout {
                     }
                 }
                 if (!set) {
-                    emojiTextView.setText(Emoji.replaceEmoji(StickersQuery.getEmojiForSticker(sticker.id), emojiTextView.getPaint().getFontMetricsInt(), AndroidUtilities.dp(16), false));
+                    emojiTextView.setText(Emoji.replaceEmoji(DataQuery.getInstance(currentAccount).getEmojiForSticker(sticker.id), emojiTextView.getPaint().getFontMetricsInt(), AndroidUtilities.dp(16), false));
                 }
                 emojiTextView.setVisibility(VISIBLE);
             } else {

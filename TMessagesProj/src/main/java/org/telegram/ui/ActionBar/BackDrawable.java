@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.ActionBar;
@@ -33,6 +33,7 @@ public class BackDrawable extends Drawable {
     private int rotatedColor = 0xff757575;
     private float animationTime = 300.0f;
     private boolean rotated = true;
+    private int arrowRotation;
 
     public BackDrawable(boolean close) {
         super();
@@ -47,6 +48,11 @@ public class BackDrawable extends Drawable {
 
     public void setRotatedColor(int value) {
         rotatedColor = value;
+        invalidateSelf();
+    }
+
+    public void setArrowRotation(int angle) {
+        arrowRotation = angle;
         invalidateSelf();
     }
 
@@ -109,6 +115,9 @@ public class BackDrawable extends Drawable {
 
         canvas.save();
         canvas.translate(getIntrinsicWidth() / 2, getIntrinsicHeight() / 2);
+        if (arrowRotation != 0) {
+            canvas.rotate(arrowRotation);
+        }
         float rotation = currentRotation;
         if (!alwaysClose) {
             canvas.rotate(currentRotation * (reverseAngle ? -225 : 135));

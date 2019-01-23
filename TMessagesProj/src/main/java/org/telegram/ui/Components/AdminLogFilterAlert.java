@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -15,6 +15,7 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
+import android.util.SparseArray;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -36,13 +37,12 @@ import org.telegram.ui.Cells.ShadowSectionCell;
 import org.telegram.ui.StickerPreviewViewer;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.regex.Pattern;
 
 public class AdminLogFilterAlert extends BottomSheet {
 
     public interface AdminLogFilterAlertDelegate {
-        void didSelectRights(TLRPC.TL_channelAdminLogEventsFilter filter, HashMap<Integer, TLRPC.User> admins);
+        void didSelectRights(TLRPC.TL_channelAdminLogEventsFilter filter, SparseArray<TLRPC.User> admins);
     }
 
     private Pattern urlPattern;
@@ -60,7 +60,7 @@ public class AdminLogFilterAlert extends BottomSheet {
 
     private TLRPC.TL_channelAdminLogEventsFilter currentFilter;
     private ArrayList<TLRPC.ChannelParticipant> currentAdmins;
-    private HashMap<Integer, TLRPC.User> selectedAdmins;
+    private SparseArray<TLRPC.User> selectedAdmins;
     private boolean isMegagroup;
 
     private int restrictionsRow;
@@ -73,7 +73,7 @@ public class AdminLogFilterAlert extends BottomSheet {
     private int leavingRow;
     private int allAdminsRow;
 
-    public AdminLogFilterAlert(Context context, TLRPC.TL_channelAdminLogEventsFilter filter, HashMap<Integer, TLRPC.User> admins, boolean megagroup) {
+    public AdminLogFilterAlert(Context context, TLRPC.TL_channelAdminLogEventsFilter filter, SparseArray<TLRPC.User> admins, boolean megagroup) {
         super(context, false);
         if (filter != null) {
             currentFilter = new TLRPC.TL_channelAdminLogEventsFilter();
@@ -93,7 +93,7 @@ public class AdminLogFilterAlert extends BottomSheet {
             currentFilter.delete = filter.delete;
         }
         if (admins != null) {
-            selectedAdmins = new HashMap<>(admins);
+            selectedAdmins = admins.clone();
         }
         isMegagroup = megagroup;
 
@@ -213,112 +213,109 @@ public class AdminLogFilterAlert extends BottomSheet {
                 updateLayout();
             }
         });
-        listView.setOnItemClickListener(new RecyclerListView.OnItemClickListener() {
-            @Override
-            public void onItemClick(View view, int position) {
-                if (view instanceof CheckBoxCell) {
-                    CheckBoxCell cell = (CheckBoxCell) view;
-                    boolean isChecked = cell.isChecked();
-                    cell.setChecked(!isChecked, true);
-                    if (position == 0) {
-                        if (isChecked) {
-                            currentFilter = new TLRPC.TL_channelAdminLogEventsFilter();
-                            currentFilter.join = currentFilter.leave = currentFilter.invite = currentFilter.ban =
-                            currentFilter.unban = currentFilter.kick = currentFilter.unkick = currentFilter.promote =
-                            currentFilter.demote = currentFilter.info = currentFilter.settings = currentFilter.pinned =
-                            currentFilter.edit = currentFilter.delete = false;
-                        } else {
-                            currentFilter = null;
-                        }
-                        int count = listView.getChildCount();
-                        for (int a = 0; a < count; a++) {
-                            View child = listView.getChildAt(a);
-                            RecyclerView.ViewHolder holder = listView.findContainingViewHolder(child);
-                            int pos = holder.getAdapterPosition();
-                            if (holder.getItemViewType() == 0 && pos > 0 && pos < allAdminsRow - 1) {
-                                ((CheckBoxCell) child).setChecked(!isChecked, true);
-                            }
-                        }
-                    } else if (position == allAdminsRow) {
-                        if (isChecked) {
-                            selectedAdmins = new HashMap<>();
-                        } else {
-                            selectedAdmins = null;
-                        }
-                        int count = listView.getChildCount();
-                        for (int a = 0; a < count; a++) {
-                            View child = listView.getChildAt(a);
-                            RecyclerView.ViewHolder holder = listView.findContainingViewHolder(child);
-                            int pos = holder.getAdapterPosition();
-                            if (holder.getItemViewType() == 2) {
-                                CheckBoxUserCell userCell = (CheckBoxUserCell) child;
-                                userCell.setChecked(!isChecked, true);
-                            }
-                        }
+        listView.setOnItemClickListener((view, position) -> {
+            if (view instanceof CheckBoxCell) {
+                CheckBoxCell cell = (CheckBoxCell) view;
+                boolean isChecked = cell.isChecked();
+                cell.setChecked(!isChecked, true);
+                if (position == 0) {
+                    if (isChecked) {
+                        currentFilter = new TLRPC.TL_channelAdminLogEventsFilter();
+                        currentFilter.join = currentFilter.leave = currentFilter.invite = currentFilter.ban =
+                        currentFilter.unban = currentFilter.kick = currentFilter.unkick = currentFilter.promote =
+                        currentFilter.demote = currentFilter.info = currentFilter.settings = currentFilter.pinned =
+                        currentFilter.edit = currentFilter.delete = false;
                     } else {
-                        if (currentFilter == null) {
-                            currentFilter = new TLRPC.TL_channelAdminLogEventsFilter();
-                            currentFilter.join = currentFilter.leave = currentFilter.invite = currentFilter.ban =
-                            currentFilter.unban = currentFilter.kick = currentFilter.unkick = currentFilter.promote =
-                            currentFilter.demote = currentFilter.info = currentFilter.settings = currentFilter.pinned =
-                            currentFilter.edit = currentFilter.delete = true;
-                            RecyclerView.ViewHolder holder = listView.findViewHolderForAdapterPosition(0);
-                            if (holder != null) {
-                                ((CheckBoxCell) holder.itemView).setChecked(false, true);
-                            }
-                        }
-                        if (position == restrictionsRow) {
-                            currentFilter.kick = currentFilter.ban = currentFilter.unkick = currentFilter.unban = !currentFilter.kick;
-                        } else if (position == adminsRow) {
-                            currentFilter.promote = currentFilter.demote = !currentFilter.demote;
-                        } else if (position == membersRow) {
-                            currentFilter.invite = currentFilter.join = !currentFilter.join;
-                        } else if (position == infoRow) {
-                            currentFilter.info = currentFilter.settings = !currentFilter.info;
-                        } else if (position == deleteRow) {
-                            currentFilter.delete = !currentFilter.delete;
-                        } else if (position == editRow) {
-                            currentFilter.edit = !currentFilter.edit;
-                        } else if (position == pinnedRow) {
-                            currentFilter.pinned = !currentFilter.pinned;
-                        } else if (position == leavingRow) {
-                            currentFilter.leave = !currentFilter.leave;
+                        currentFilter = null;
+                    }
+                    int count = listView.getChildCount();
+                    for (int a = 0; a < count; a++) {
+                        View child = listView.getChildAt(a);
+                        RecyclerView.ViewHolder holder = listView.findContainingViewHolder(child);
+                        int pos = holder.getAdapterPosition();
+                        if (holder.getItemViewType() == 0 && pos > 0 && pos < allAdminsRow - 1) {
+                            ((CheckBoxCell) child).setChecked(!isChecked, true);
                         }
                     }
-                    if (currentFilter != null && !currentFilter.join && !currentFilter.leave &&
-                            !currentFilter.leave && !currentFilter.invite && !currentFilter.ban &&
-                            !currentFilter.unban && !currentFilter.kick && !currentFilter.unkick &&
-                            !currentFilter.promote && !currentFilter.demote && !currentFilter.info &&
-                            !currentFilter.settings && !currentFilter.pinned && !currentFilter.edit &&
-                            !currentFilter.delete) {
-                        saveButton.setEnabled(false);
-                        saveButton.setAlpha(0.5f);
+                } else if (position == allAdminsRow) {
+                    if (isChecked) {
+                        selectedAdmins = new SparseArray<>();
                     } else {
-                        saveButton.setEnabled(true);
-                        saveButton.setAlpha(1.0f);
+                        selectedAdmins = null;
                     }
-                } else if (view instanceof CheckBoxUserCell) {
-                    CheckBoxUserCell checkBoxUserCell = (CheckBoxUserCell) view;
-                    if (selectedAdmins == null) {
-                        selectedAdmins = new HashMap<>();
-                        RecyclerView.ViewHolder holder = listView.findViewHolderForAdapterPosition(allAdminsRow);
+                    int count = listView.getChildCount();
+                    for (int a = 0; a < count; a++) {
+                        View child = listView.getChildAt(a);
+                        RecyclerView.ViewHolder holder = listView.findContainingViewHolder(child);
+                        int pos = holder.getAdapterPosition();
+                        if (holder.getItemViewType() == 2) {
+                            CheckBoxUserCell userCell = (CheckBoxUserCell) child;
+                            userCell.setChecked(!isChecked, true);
+                        }
+                    }
+                } else {
+                    if (currentFilter == null) {
+                        currentFilter = new TLRPC.TL_channelAdminLogEventsFilter();
+                        currentFilter.join = currentFilter.leave = currentFilter.invite = currentFilter.ban =
+                        currentFilter.unban = currentFilter.kick = currentFilter.unkick = currentFilter.promote =
+                        currentFilter.demote = currentFilter.info = currentFilter.settings = currentFilter.pinned =
+                        currentFilter.edit = currentFilter.delete = true;
+                        RecyclerView.ViewHolder holder = listView.findViewHolderForAdapterPosition(0);
                         if (holder != null) {
                             ((CheckBoxCell) holder.itemView).setChecked(false, true);
                         }
-                        for (int a = 0; a < currentAdmins.size(); a++) {
-                            TLRPC.User user = MessagesController.getInstance().getUser(currentAdmins.get(a).user_id);
-                            selectedAdmins.put(user.id, user);
-                        }
                     }
-                    boolean isChecked = checkBoxUserCell.isChecked();
-                    TLRPC.User user = checkBoxUserCell.getCurrentUser();
-                    if (isChecked) {
-                        selectedAdmins.remove(user.id);
-                    } else {
+                    if (position == restrictionsRow) {
+                        currentFilter.kick = currentFilter.ban = currentFilter.unkick = currentFilter.unban = !currentFilter.kick;
+                    } else if (position == adminsRow) {
+                        currentFilter.promote = currentFilter.demote = !currentFilter.demote;
+                    } else if (position == membersRow) {
+                        currentFilter.invite = currentFilter.join = !currentFilter.join;
+                    } else if (position == infoRow) {
+                        currentFilter.info = currentFilter.settings = !currentFilter.info;
+                    } else if (position == deleteRow) {
+                        currentFilter.delete = !currentFilter.delete;
+                    } else if (position == editRow) {
+                        currentFilter.edit = !currentFilter.edit;
+                    } else if (position == pinnedRow) {
+                        currentFilter.pinned = !currentFilter.pinned;
+                    } else if (position == leavingRow) {
+                        currentFilter.leave = !currentFilter.leave;
+                    }
+                }
+                if (currentFilter != null && !currentFilter.join && !currentFilter.leave &&
+                        !currentFilter.leave && !currentFilter.invite && !currentFilter.ban &&
+                        !currentFilter.unban && !currentFilter.kick && !currentFilter.unkick &&
+                        !currentFilter.promote && !currentFilter.demote && !currentFilter.info &&
+                        !currentFilter.settings && !currentFilter.pinned && !currentFilter.edit &&
+                        !currentFilter.delete) {
+                    saveButton.setEnabled(false);
+                    saveButton.setAlpha(0.5f);
+                } else {
+                    saveButton.setEnabled(true);
+                    saveButton.setAlpha(1.0f);
+                }
+            } else if (view instanceof CheckBoxUserCell) {
+                CheckBoxUserCell checkBoxUserCell = (CheckBoxUserCell) view;
+                if (selectedAdmins == null) {
+                    selectedAdmins = new SparseArray<>();
+                    RecyclerView.ViewHolder holder = listView.findViewHolderForAdapterPosition(allAdminsRow);
+                    if (holder != null) {
+                        ((CheckBoxCell) holder.itemView).setChecked(false, true);
+                    }
+                    for (int a = 0; a < currentAdmins.size(); a++) {
+                        TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(currentAdmins.get(a).user_id);
                         selectedAdmins.put(user.id, user);
                     }
-                    checkBoxUserCell.setChecked(!isChecked, true);
                 }
+                boolean isChecked = checkBoxUserCell.isChecked();
+                TLRPC.User user = checkBoxUserCell.getCurrentUser();
+                if (isChecked) {
+                    selectedAdmins.remove(user.id);
+                } else {
+                    selectedAdmins.put(user.id, user);
+                }
+                checkBoxUserCell.setChecked(!isChecked, true);
             }
         });
         containerView.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT, 0, 0, 0, 48));
@@ -331,12 +328,9 @@ public class AdminLogFilterAlert extends BottomSheet {
         saveButton.setBackgroundDrawable(Theme.getSelectorDrawable(false));
         saveButton.setTextAndIcon(LocaleController.getString("Save", R.string.Save).toUpperCase(), 0);
         saveButton.setTextColor(Theme.getColor(Theme.key_dialogTextBlue2));
-        saveButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                delegate.didSelectRights(currentFilter, selectedAdmins);
-                dismiss();
-            }
+        saveButton.setOnClickListener(v -> {
+            delegate.didSelectRights(currentFilter, selectedAdmins);
+            dismiss();
         });
         containerView.addView(saveButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.LEFT | Gravity.BOTTOM));
 
@@ -410,12 +404,11 @@ public class AdminLogFilterAlert extends BottomSheet {
             View view = null;
             switch (viewType) {
                 case 0:
-                    view = new CheckBoxCell(context, true);
+                    view = new CheckBoxCell(context, 1, 21);
                     view.setBackgroundDrawable(Theme.getSelectorDrawable(false));
                     break;
                 case 1:
-                    ShadowSectionCell shadowSectionCell = new ShadowSectionCell(context);
-                    shadowSectionCell.setSize(18);
+                    ShadowSectionCell shadowSectionCell = new ShadowSectionCell(context, 18);
                     view = new FrameLayout(context);
                     ((FrameLayout) view).addView(shadowSectionCell, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
                     view.setBackgroundColor(Theme.getColor(Theme.key_dialogBackgroundGray));
@@ -460,7 +453,7 @@ public class AdminLogFilterAlert extends BottomSheet {
                 case 2: {
                     CheckBoxUserCell userCell = (CheckBoxUserCell) holder.itemView;
                     int userId = currentAdmins.get(position - allAdminsRow - 1).user_id;
-                    userCell.setChecked(selectedAdmins == null || selectedAdmins.containsKey(userId), false);
+                    userCell.setChecked(selectedAdmins == null || selectedAdmins.indexOfKey(userId) >= 0, false);
                     break;
                 }
             }
@@ -501,7 +494,7 @@ public class AdminLogFilterAlert extends BottomSheet {
                 case 2: {
                     CheckBoxUserCell userCell = (CheckBoxUserCell) holder.itemView;
                     int userId = currentAdmins.get(position - allAdminsRow - 1).user_id;
-                    userCell.setUser(MessagesController.getInstance().getUser(userId), selectedAdmins == null || selectedAdmins.containsKey(userId), position != getItemCount() - 1);
+                    userCell.setUser(MessagesController.getInstance(currentAccount).getUser(userId), selectedAdmins == null || selectedAdmins.indexOfKey(userId) >= 0, position != getItemCount() - 1);
                     break;
                 }
             }

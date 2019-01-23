@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -288,7 +288,8 @@ public class VideoTimelineView extends View {
                 FileLog.e(e);
             }
         }
-        for (Bitmap bitmap : frames) {
+        for (int a = 0; a < frames.size(); a++) {
+            Bitmap bitmap = frames.get(a);
             if (bitmap != null) {
                 bitmap.recycle();
             }
@@ -301,7 +302,8 @@ public class VideoTimelineView extends View {
     }
 
     public void clearFrames() {
-        for (Bitmap bitmap : frames) {
+        for (int a = 0; a < frames.size(); a++) {
+            Bitmap bitmap = frames.get(a);
             if (bitmap != null) {
                 bitmap.recycle();
             }
